@@ -635,12 +635,12 @@ def page_dashboard():
 
             st.markdown("""
             <style>
-            div[data-testid="stHorizontalBlock"] div[data-testid="column"]:first-child .stButton > button {
+            .btn-modifier > button {
                 background: #F5F4F0 !important; color: #1A1A1A !important;
                 border: none !important; border-radius: 0 0 0 16px !important;
                 padding: 9px !important; font-size: 13px !important; font-weight: 600 !important;
             }
-            div[data-testid="stHorizontalBlock"] div[data-testid="column"]:last-child .stButton > button {
+            .btn-supprimer > button {
                 background: #FFF0F0 !important; color: #D94040 !important;
                 border: none !important; border-radius: 0 0 16px 0 !important;
                 padding: 9px !important; font-size: 13px !important; font-weight: 600 !important;
@@ -675,10 +675,13 @@ def page_dashboard():
 
                 col_e, col_d = st.columns(2)
                 with col_e:
+                    st.markdown('<div class="btn-modifier">', unsafe_allow_html=True)
                     if st.button("✏️ Modifier", key=f"e_{tx_id}", use_container_width=True):
                         st.session_state.editing_id = tx_id
                         st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
                 with col_d:
+                    st.markdown('<div class="btn-supprimer">', unsafe_allow_html=True)
                     if st.button("🗑 Supprimer", key=f"d_{tx_id}", use_container_width=True):
                         _, fresh_sha = gh_read(BUDGET_FILE)
                         full_df, _   = read_budget_cached()
@@ -686,6 +689,7 @@ def page_dashboard():
                         ok, err      = write_budget(full_df, fresh_sha or _)
                         if ok: st.rerun()
                         else:  st.error(f"Erreur : {err}")
+                    st.markdown('</div>', unsafe_allow_html=True)
 
                 st.markdown("<div style='margin-bottom:.75rem'></div>", unsafe_allow_html=True)
 

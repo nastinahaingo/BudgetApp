@@ -569,62 +569,8 @@ def page_dashboard():
 
     # ══ AJOUTER ══════════════════════════════════════
     with tab_add:
-        editing_id = st.session_state.editing_id
-
-        if editing_id:
-            # ── MODE ÉDITION — sans st.form pour permettre les widgets dynamiques ──
-            st.markdown("### ✏️ Modifier la transaction")
-            row_edit = df[df["id"].astype(str) == editing_id]
-            if row_edit.empty:
-                st.warning("Transaction introuvable.")
-                st.session_state.editing_id = None
-                st.rerun()
-            else:
-                r            = row_edit.iloc[0]
-                default_base = get_cat_base(r["categorie"])
-                default_sous = get_cat_sous(r["categorie"])
-
-                desc = st.text_input("Description", value=r["description"], key="ed_desc")
-                mt   = st.number_input("Montant (€)", value=float(r["montant"]),
-                                       min_value=0.01, step=0.01, format="%.2f", key="ed_mt")
-                cat, sous_cat, nouvelle_cat = cat_selector(
-                    "edit", default_cat=default_base, default_sous=default_sous)
-                tp_idx = TYPES.index(r["type"]) if r["type"] in TYPES else 0
-                tp   = st.selectbox("Type", TYPES, index=tp_idx, key="ed_tp")
-                dt   = st.date_input("Date", value=r["date"].date()
-                                     if hasattr(r["date"], "date") else date.today(), key="ed_dt")
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("💾 Enregistrer", use_container_width=True, key="ed_save"):
-                        if not desc.strip():
-                            st.warning("Description vide.")
-                        else:
-                            cat_finale = resolve_cat(cat, sous_cat, nouvelle_cat)
-                            full_df, sha = read_budget_cached()
-                            _, fresh_sha = gh_read(BUDGET_FILE)
-                            if fresh_sha: sha = fresh_sha
-                            full_df.loc[full_df["id"].astype(str) == editing_id, "description"] = desc.strip()
-                            full_df.loc[full_df["id"].astype(str) == editing_id, "montant"]     = mt
-                            full_df.loc[full_df["id"].astype(str) == editing_id, "categorie"]   = cat_finale
-                            full_df.loc[full_df["id"].astype(str) == editing_id, "type"]        = tp
-                            full_df.loc[full_df["id"].astype(str) == editing_id, "date"]        = dt.strftime("%Y-%m-%d")
-                            ok, err = write_budget(full_df, sha)
-                            if ok:
-                                # Réinitialise + redirige vers historique avec message
-                                st.session_state.editing_id   = None
-                                st.session_state.edit_success = True
-                                st.rerun()
-                            else:
-                                st.error(f"Erreur : {err}")
-                with col2:
-                    if st.button("Annuler", use_container_width=True, key="ed_cancel"):
-                        st.session_state.editing_id = None
-                        st.rerun()
-
-        else:
-            # ── MODE AJOUT — sans st.form pour permettre les widgets dynamiques ──
-            st.markdown("### Nouvelle opération")
+        # ── MODE AJOUT uniquement — la modification se fait inline dans l'historique ──
+        st.markdown("### Nouvelle opération")
 
             # Message de confirmation affiché après un ajout réussi
             if st.session_state.get("add_success"):
@@ -748,31 +694,42 @@ def page_dashboard():
                 tx_id   = str(row["id"])
                 is_mine = str(row.get("user_email","")) == email
                 badge   = f'<span class="badge {"mine" if is_mine else ""}">{row["auteur"]}</span>'
+                is_editing_this = st.session_state.editing_id == tx_id
 
-                # Carte + 2 petits boutons icône sur la même ligne
-                col_card, col_e, col_d = st.columns([10, 1, 1])
-                with col_card:
-                    st.markdown(f"""
-                    <div class="card" style="margin-bottom:0">
-                      <div class="tx" style="padding:.1rem 0">
-                        <div class="tx-icon" style="background:{bg}">{icon}</div>
-                        <div class="tx-desc">
-                          <strong>{row['description']}</strong>
-                          <span>{row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']}</span>
-                          <span>{badge}</span>
-                        </div>
-                        <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
-                      </div>
-                    </div>""", unsafe_allow_html=True)
+                # ── Carte avec boutons intégrés en HTML ──
+                st.markdown(f"""
+                <div style="background:#fff;border-radius:16px;padding:1rem 1.1rem .65rem;
+                     margin-bottom:.1rem;box-shadow:0 2px 14px rgba(0,0,0,.07)">
+                  <div class="tx" style="padding:.1rem 0 .5rem">
+                    <div class="tx-icon" style="background:{bg}">{icon}</div>
+                    <div class="tx-desc">
+                      <strong>{row['description']}</strong>
+                      <span>{row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']}</span>
+                      <span>{badge}</span>
+                    </div>
+                    <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
+                  </div>
+                  <div style="display:flex;gap:8px;border-top:.5px solid #F2F2F2;padding-top:.5rem">
+                    <div style="flex:1" id="btn_edit_{tx_id}"></div>
+                    <div style="flex:1" id="btn_del_{tx_id}"></div>
+                  </div>
+                </div>""", unsafe_allow_html=True)
+
+                # Boutons Streamlit superposés sur les placeholders
+                col_e, col_d = st.columns(2)
                 with col_e:
                     st.markdown('<div class="btn-modifier">', unsafe_allow_html=True)
-                    if st.button("✏️", key=f"e_{tx_id}"):
-                        st.session_state.editing_id = tx_id
+                    lbl_edit = "✕ Annuler" if is_editing_this else "✏️ Modifier"
+                    if st.button(lbl_edit, key=f"e_{tx_id}", use_container_width=True):
+                        if is_editing_this:
+                            st.session_state.editing_id = None
+                        else:
+                            st.session_state.editing_id = tx_id
                         st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
                 with col_d:
                     st.markdown('<div class="btn-supprimer">', unsafe_allow_html=True)
-                    if st.button("🗑", key=f"d_{tx_id}"):
+                    if st.button("🗑 Supprimer", key=f"d_{tx_id}", use_container_width=True):
                         _, fresh_sha = gh_read(BUDGET_FILE)
                         full_df, _   = read_budget_cached()
                         full_df      = full_df[full_df["id"].astype(str) != tx_id]
@@ -780,6 +737,54 @@ def page_dashboard():
                         if ok: st.rerun()
                         else:  st.error(f"Erreur : {err}")
                     st.markdown('</div>', unsafe_allow_html=True)
+
+                # ── Bloc modifier inline — s'ouvre sous la carte ──
+                if is_editing_this:
+                    r            = row
+                    default_base = get_cat_base(r["categorie"])
+                    default_sous = get_cat_sous(r["categorie"])
+                    st.markdown("""
+                    <div style="background:#F5F4F0;border-radius:0 0 16px 16px;
+                         padding:1rem 1.1rem;margin-top:-4px;margin-bottom:.75rem;
+                         border:1.5px solid #E8E8E8;border-top:none">
+                    """, unsafe_allow_html=True)
+                    ed_desc = st.text_input("Description", value=r["description"],
+                                            key=f"ed_desc_{tx_id}")
+                    ed_mt   = st.number_input("Montant (€)", value=float(r["montant"]),
+                                              min_value=0.01, step=0.01, format="%.2f",
+                                              key=f"ed_mt_{tx_id}")
+                    ed_cat, ed_sous, ed_nouvelle = cat_selector(
+                        f"ed_{tx_id}", default_cat=default_base, default_sous=default_sous)
+                    tp_idx  = TYPES.index(r["type"]) if r["type"] in TYPES else 0
+                    ed_tp   = st.selectbox("Type", TYPES, index=tp_idx, key=f"ed_tp_{tx_id}")
+                    ed_dt   = st.date_input("Date",
+                                            value=r["date"].date() if hasattr(r["date"],"date")
+                                            else date.today(), key=f"ed_dt_{tx_id}")
+                    if st.button("💾 Enregistrer la modification", key=f"ed_save_{tx_id}",
+                                 use_container_width=True):
+                        if not ed_desc.strip():
+                            st.warning("Description vide.")
+                        else:
+                            cat_finale = resolve_cat(ed_cat, ed_sous, ed_nouvelle)
+                            full_df, sha = read_budget_cached()
+                            _, fresh_sha = gh_read(BUDGET_FILE)
+                            if fresh_sha: sha = fresh_sha
+                            full_df.loc[full_df["id"].astype(str)==tx_id,"description"] = ed_desc.strip()
+                            full_df.loc[full_df["id"].astype(str)==tx_id,"montant"]     = ed_mt
+                            full_df.loc[full_df["id"].astype(str)==tx_id,"categorie"]   = cat_finale
+                            full_df.loc[full_df["id"].astype(str)==tx_id,"type"]        = ed_tp
+                            full_df.loc[full_df["id"].astype(str)==tx_id,"date"]        = ed_dt.strftime("%Y-%m-%d")
+                            ok, err = write_budget(full_df, sha)
+                            if ok:
+                                st.session_state.editing_id   = None
+                                st.session_state.edit_success = True
+                                st.rerun()
+                            else:
+                                st.error(f"Erreur : {err}")
+                    st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div style='margin-bottom:.5rem'></div>",
+                                unsafe_allow_html=True)
 
     # ══ IMPORTER CSV ═════════════════════════════════
     with tab_import:

@@ -641,27 +641,37 @@ def page_dashboard():
                 sign    = "+" if is_rev else "−"
                 tx_id   = str(row["id"])
                 is_mine = str(row.get("user_email","")) == email
+                badge   = f'<span class="badge {"mine" if is_mine else ""}">{row["auteur"]}</span>'
 
-                col_card, col_edit, col_del = st.columns([5, 1, 1])
-                with col_card:
-                    badge = f'<span class="badge {"mine" if is_mine else ""}">{row["auteur"]}</span>'
-                    st.markdown(f"""
-                    <div class="card" style="margin-bottom:.3rem">
-                      <div class="tx" style="padding:.15rem 0">
-                        <div class="tx-icon" style="background:{bg}">{icon}</div>
-                        <div class="tx-desc">
-                          <strong>{row['description']}</strong>
-                          <span>{row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']} {badge}</span>
-                        </div>
-                        <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
-                      </div>
-                    </div>""", unsafe_allow_html=True)
-                with col_edit:
-                    if st.button("✏️", key=f"e_{tx_id}", help="Modifier"):
+                st.markdown(f"""
+                <div class="card" style="margin-bottom:.3rem">
+                  <div class="tx" style="padding:.15rem 0">
+                    <div class="tx-icon" style="background:{bg}">{icon}</div>
+                    <div class="tx-desc">
+                      <strong>{row['description']}</strong>
+                      <span>{row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']} {badge}</span>
+                    </div>
+                    <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
+                  </div>
+                  <div style="display:flex;gap:8px;margin-top:.5rem;border-top:.5px solid #F2F2F2;padding-top:.5rem">
+                    <button onclick="" style="flex:1;background:#F5F4F0;border:none;border-radius:10px;
+                      padding:7px;font-size:13px;font-weight:600;color:#1A1A1A;cursor:pointer"
+                      id="edit_{tx_id}">✏️ Modifier</button>
+                    <button onclick="" style="flex:1;background:#FFF0F0;border:none;border-radius:10px;
+                      padding:7px;font-size:13px;font-weight:600;color:#D94040;cursor:pointer"
+                      id="del_{tx_id}">🗑 Supprimer</button>
+                  </div>
+                </div>""", unsafe_allow_html=True)
+
+                col_e, col_d = st.columns(2)
+                with col_e:
+                    if st.button("✏️ Modifier", key=f"e_{tx_id}",
+                                 use_container_width=True):
                         st.session_state.editing_id = tx_id
                         st.rerun()
-                with col_del:
-                    if st.button("🗑", key=f"d_{tx_id}", help="Supprimer"):
+                with col_d:
+                    if st.button("🗑 Supprimer", key=f"d_{tx_id}",
+                                 use_container_width=True):
                         _, fresh_sha = gh_read(BUDGET_FILE)
                         full_df, _   = read_budget_cached()
                         full_df      = full_df[full_df["id"].astype(str) != tx_id]

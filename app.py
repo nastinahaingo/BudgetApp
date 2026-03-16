@@ -10,7 +10,7 @@ import os
 # ==========================================
 # 1. CONFIGURATION ET STYLE (MOBILE LIGHT)
 # ==========================================
-st.set_page_config(page_title="Onyx Budget Pro", layout="centered")
+st.set_page_config(page_title="H&L", layout="centered")
 
 st.markdown("""
     <style>
@@ -33,7 +33,7 @@ st.markdown("""
 # ==========================================
 # 2. GESTION DE LA BASE DE DONNÉES (SQLITE)
 # ==========================================
-DB_NAME = "onyx_budget_v3.db"
+DB_NAME = "H&l_budget_v3.db"
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)

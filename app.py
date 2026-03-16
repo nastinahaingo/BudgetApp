@@ -1,19 +1,10 @@
 """
 H&L Budget — Application de suivi des dépenses du foyer
-Stack : Streamlit Cloud · CSV stockés sur GitHub · Pas d'email
+Stack : Streamlit Cloud · CSV stockés sur GitHub
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SECRETS (Streamlit Cloud > Manage app > Settings > Secrets)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-GITHUB_TOKEN = "ghp_..."
-GITHUB_REPO  = "votre_user/nom_du_repo"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FICHIERS dans le repo GitHub (créés automatiquement) :
-  budget_data.csv  →  transactions
-  users.csv        →  email, password (en clair)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECRETS (Streamlit Cloud > Manage app > Settings > Secrets) :
+  GITHUB_TOKEN = "ghp_..."
+  GITHUB_REPO  = "votre_user/nom_du_repo"
 """
 
 import streamlit as st
@@ -27,7 +18,7 @@ import requests
 
 
 # ─────────────────────────────────────────────────────
-# 1. CONFIG & STYLE MOBILE-FIRST
+# 1. CONFIG & STYLE
 # ─────────────────────────────────────────────────────
 st.set_page_config(page_title="H&L Budget", page_icon="💰",
                    layout="centered", initial_sidebar_state="collapsed")
@@ -41,7 +32,6 @@ html, body, [class*="css"] {
     background: #F5F4F0 !important;
 }
 .main .block-container { padding: 0 1rem 5rem; max-width: 480px; }
-
 .hl-header {
     background: #1A1A1A; color: #fff;
     margin: -1rem -1rem 1.25rem;
@@ -51,13 +41,11 @@ html, body, [class*="css"] {
 .hl-header small { font-size:11px; opacity:.5; text-transform:uppercase; letter-spacing:.1em; }
 .hl-header h2   { font-size:22px; font-weight:800; margin-top:3px; }
 .hl-header p    { font-size:13px; opacity:.6; margin-top:3px; }
-
 .card {
     background:#fff; border-radius:18px;
     padding:1rem 1.1rem; margin-bottom:.65rem;
     box-shadow:0 2px 14px rgba(0,0,0,.07);
 }
-
 .metric-row { display:flex; gap:8px; margin-bottom:.75rem; }
 .metric-box {
     flex:1; background:#fff; border-radius:14px;
@@ -68,7 +56,6 @@ html, body, [class*="css"] {
 .metric-val   { font-size:17px; font-weight:800; color:#1A1A1A; display:block; margin-top:3px; }
 .metric-val.green { color:#2D6A0F; }
 .metric-val.red   { color:#D94040; }
-
 .tx { display:flex; align-items:center; gap:12px; padding:.6rem 0; border-bottom:.5px solid #F2F2F2; }
 .tx:last-child { border-bottom:none; }
 .tx-icon { width:38px; height:38px; border-radius:11px; display:flex;
@@ -80,11 +67,9 @@ html, body, [class*="css"] {
 .tx-amt { font-size:14px; font-weight:800; white-space:nowrap; }
 .tx-amt.red   { color:#D94040; }
 .tx-amt.green { color:#2D6A0F; }
-
 .auth-logo { text-align:center; padding:2.5rem 0 1.5rem; }
 .auth-logo h1 { font-size:36px; font-weight:800; color:#1A1A1A; letter-spacing:-2px; }
 .auth-logo p  { font-size:14px; color:#aaa; margin-top:6px; }
-
 .stButton > button {
     width:100%; border-radius:14px !important;
     background:#1A1A1A !important; color:#fff !important;
@@ -113,9 +98,8 @@ div[aria-selected="true"] { background:#1A1A1A !important; color:#fff !important
 # ─────────────────────────────────────────────────────
 BUDGET_FILE = "budget_data.csv"
 USERS_FILE  = "users.csv"
-
 COLS_BUDGET = ["id","user_email","date","description","categorie","type","montant","auteur"]
-COLS_USERS  = ["email","password"]   # mot de passe stocké en clair
+COLS_USERS  = ["email","password"]
 
 CATEGORIES = {
     "🏠 Logement":     ("#F0F0EE", "#1A1A1A"),
@@ -125,13 +109,13 @@ CATEGORIES = {
     "🏥 Santé":        ("#FFFBEE", "#A16207"),
     "📦 Autre":        ("#F8F8F8", "#888"),
 }
-TYPES = ["Variable", "Fixe", "Revenu"]
+TYPES    = ["Variable", "Fixe", "Revenu"]
 MONTH_FR = ["Janvier","Février","Mars","Avril","Mai","Juin",
             "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
 
 
 # ─────────────────────────────────────────────────────
-# 3. GITHUB — LECTURE / ÉCRITURE CSV
+# 3. GITHUB — LECTURE / ÉCRITURE
 # ─────────────────────────────────────────────────────
 def _gh_headers() -> dict:
     return {
@@ -142,86 +126,125 @@ def _gh_headers() -> dict:
 def _gh_base() -> str:
     return f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents"
 
-def _gh_read(filename: str) -> tuple[str, str]:
-    r = requests.get(f"{_gh_base()}/{filename}", headers=_gh_headers(), timeout=10)
+
+def gh_read(filename: str) -> tuple[str, str]:
+    """Lit un fichier GitHub — TOUJOURS depuis le réseau, sans cache."""
+    r = requests.get(
+        f"{_gh_base()}/{filename}",
+        headers=_gh_headers(),
+        params={"ref": "main"},   # force bypass du cache GitHub
+        timeout=10,
+    )
     if r.status_code == 200:
         data = r.json()
         return base64.b64decode(data["content"]).decode("utf-8"), data["sha"]
     return "", ""
 
-def _gh_write(filename: str, content: str, sha: str, msg: str) -> bool:
+
+def gh_write(filename: str, content: str, sha: str, msg: str) -> bool:
+    """Écrit un fichier sur GitHub."""
     payload = {
         "message": msg,
         "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
     }
     if sha:
         payload["sha"] = sha
-    r = requests.put(f"{_gh_base()}/{filename}",
-                     headers=_gh_headers(), json=payload, timeout=10)
+    r = requests.put(
+        f"{_gh_base()}/{filename}",
+        headers=_gh_headers(),
+        json=payload,
+        timeout=10,
+    )
     return r.status_code in (200, 201)
-
-@st.cache_data(ttl=8)
-def _load(filename: str, columns: list) -> tuple[pd.DataFrame, str]:
-    content, sha = _gh_read(filename)
-    if content.strip():
-        df = pd.read_csv(StringIO(content))
-        for col in columns:
-            if col not in df.columns:
-                df[col] = ""
-        return df, sha
-    empty = pd.DataFrame(columns=columns)
-    _gh_write(filename, empty.to_csv(index=False), "", f"init {filename}")
-    return empty, ""
-
-def _save(filename: str, df: pd.DataFrame, sha: str, columns: list, msg: str) -> None:
-    _load.clear()
-    df_save = df.copy()
-    for col in df_save.columns:
-        if "date" in col.lower() and df_save[col].dtype != object:
-            df_save[col] = df_save[col].apply(
-                lambda x: x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else x)
-    _gh_write(filename, df_save.reindex(columns=columns).to_csv(index=False), sha, msg)
-
-def get_users()  -> tuple[pd.DataFrame, str]: return _load(USERS_FILE,  COLS_USERS)
-def save_users(df, sha): _save(USERS_FILE, df, sha, COLS_USERS, "update users")
-
-def get_budget() -> tuple[pd.DataFrame, str]:
-    df, sha = _load(BUDGET_FILE, COLS_BUDGET)
-    if not df.empty:
-        df["date"]    = pd.to_datetime(df["date"], errors="coerce")
-        df["montant"] = pd.to_numeric(df["montant"], errors="coerce").fillna(0)
-        df = df.dropna(subset=["date"])
-    return df, sha
-
-def save_budget(df, sha): _save(BUDGET_FILE, df, sha, COLS_BUDGET, "update budget_data")
 
 
 # ─────────────────────────────────────────────────────
-# 4. LOGIQUE AUTH (sans email, MDP en clair)
+# 4. ACCÈS AUX DONNÉES
+# FIX : on ne cache PAS les lectures auth (users).
+# On cache uniquement le budget avec un TTL court.
+# ─────────────────────────────────────────────────────
+def read_users() -> tuple[pd.DataFrame, str]:
+    """Lecture directe GitHub — pas de cache pour garantir la fraîcheur."""
+    content, sha = gh_read(USERS_FILE)
+    if content.strip():
+        df = pd.read_csv(StringIO(content))
+        for col in COLS_USERS:
+            if col not in df.columns:
+                df[col] = ""
+        return df, sha
+    # Fichier absent → on le crée
+    empty = pd.DataFrame(columns=COLS_USERS)
+    gh_write(USERS_FILE, empty.to_csv(index=False), "", "init users.csv")
+    return empty, ""
+
+
+def write_users(df: pd.DataFrame, sha: str) -> None:
+    gh_write(USERS_FILE, df.to_csv(index=False), sha, "update users")
+
+
+@st.cache_data(ttl=10)
+def read_budget_cached() -> tuple[pd.DataFrame, str]:
+    """Lecture budget avec cache court (10 s)."""
+    content, sha = gh_read(BUDGET_FILE)
+    if content.strip():
+        df = pd.read_csv(StringIO(content))
+        for col in COLS_BUDGET:
+            if col not in df.columns:
+                df[col] = ""
+        df["date"]    = pd.to_datetime(df["date"], errors="coerce")
+        df["montant"] = pd.to_numeric(df["montant"], errors="coerce").fillna(0)
+        df = df.dropna(subset=["date"])
+        return df, sha
+    empty = pd.DataFrame(columns=COLS_BUDGET)
+    gh_write(BUDGET_FILE, empty.to_csv(index=False), "", "init budget_data.csv")
+    return empty, ""
+
+
+def write_budget(df: pd.DataFrame, sha: str) -> None:
+    read_budget_cached.clear()
+    df_save = df.copy()
+    if "date" in df_save.columns:
+        df_save["date"] = df_save["date"].apply(
+            lambda x: x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else x)
+    gh_write(BUDGET_FILE, df_save.reindex(columns=COLS_BUDGET).to_csv(index=False),
+             sha, "update budget_data")
+
+
+# ─────────────────────────────────────────────────────
+# 5. AUTH
 # ─────────────────────────────────────────────────────
 def register(email: str, pwd: str, pwd2: str) -> tuple[bool, str]:
     email = email.strip().lower()
     if "@" not in email:  return False, "Adresse email invalide."
     if len(pwd) < 6:      return False, "Mot de passe trop court (6 car. min.)."
     if pwd != pwd2:       return False, "Les mots de passe ne correspondent pas."
-    df, sha = get_users()
-    if not df.empty and email in df["email"].values:
+
+    df, sha = read_users()   # lecture fraîche GitHub
+    if not df.empty and email in df["email"].astype(str).values:
         return False, "Un compte existe déjà avec cet email."
-    row = pd.DataFrame([[email, pwd]], columns=COLS_USERS)
-    save_users(pd.concat([df, row], ignore_index=True), sha)
+
+    new_row = pd.DataFrame([[email, pwd]], columns=COLS_USERS)
+    updated = pd.concat([df, new_row], ignore_index=True)
+    ok = gh_write(USERS_FILE, updated.to_csv(index=False), sha, f"register {email}")
+    if not ok:
+        return False, "Erreur lors de la sauvegarde. Réessayez."
     return True, "Compte créé ! Connectez-vous."
+
 
 def login(email: str, pwd: str) -> tuple[bool, str]:
     email = email.strip().lower()
-    df, _ = get_users()
-    if df.empty: return False, "Identifiants incorrects."
-    row = df[(df["email"] == email) & (df["password"] == pwd)]
-    if row.empty: return False, "Identifiants incorrects."
+    df, _ = read_users()   # lecture fraîche GitHub
+    if df.empty:
+        return False, "Identifiants incorrects."
+    match = df[(df["email"].astype(str) == email) &
+               (df["password"].astype(str) == pwd)]
+    if match.empty:
+        return False, "Identifiants incorrects."
     return True, "OK"
 
 
 # ─────────────────────────────────────────────────────
-# 5. SESSION
+# 6. SESSION
 # ─────────────────────────────────────────────────────
 for k, v in {"logged_in": False, "user_email": "", "auth_mode": "login"}.items():
     if k not in st.session_state:
@@ -229,7 +252,7 @@ for k, v in {"logged_in": False, "user_email": "", "auth_mode": "login"}.items()
 
 
 # ─────────────────────────────────────────────────────
-# 6. PAGE AUTH
+# 7. PAGE AUTH
 # ─────────────────────────────────────────────────────
 def page_auth():
     st.markdown('<div class="auth-logo"><h1>H&L</h1><p>Votre budget familial</p></div>',
@@ -250,7 +273,8 @@ def page_auth():
             else:
                 st.error(msg)
         if st.button("Créer un compte"):
-            st.session_state.auth_mode = "register"; st.rerun()
+            st.session_state.auth_mode = "register"
+            st.rerun()
 
     elif mode == "register":
         st.markdown("### Créer un compte")
@@ -261,14 +285,19 @@ def page_auth():
             sub   = st.form_submit_button("Créer mon compte")
         if sub:
             ok, msg = register(email, pwd1, pwd2)
-            (st.success if ok else st.error)(msg)
-            if ok: st.session_state.auth_mode = "login"
+            if ok:
+                st.success(msg)
+                st.session_state.auth_mode = "login"
+                st.rerun()
+            else:
+                st.error(msg)
         if st.button("← Retour à la connexion"):
-            st.session_state.auth_mode = "login"; st.rerun()
+            st.session_state.auth_mode = "login"
+            st.rerun()
 
 
 # ─────────────────────────────────────────────────────
-# 7. PAGE DASHBOARD
+# 8. PAGE DASHBOARD
 # ─────────────────────────────────────────────────────
 def page_dashboard():
     email     = st.session_state.user_email
@@ -285,7 +314,7 @@ def page_dashboard():
     tab_home, tab_add, tab_history, tab_account = st.tabs(
         ["📊 Dashboard", "➕ Ajouter", "📋 Historique", "👤 Compte"])
 
-    df_all, sha_budget = get_budget()
+    df_all, sha_budget = read_budget_cached()
     df = pd.DataFrame()
     if not df_all.empty and "user_email" in df_all.columns:
         df = df_all[df_all["user_email"] == email].copy()
@@ -296,7 +325,8 @@ def page_dashboard():
         if df.empty:
             st.info("Aucune transaction. Commencez par en ajouter une !")
         else:
-            df_m = df[(df["date"].dt.month == now.month) & (df["date"].dt.year == now.year)]
+            df_m = df[(df["date"].dt.month == now.month) &
+                      (df["date"].dt.year  == now.year)]
             rev  = df_m[df_m["type"] == "Revenu"]["montant"].sum()
             dep  = df_m[df_m["type"] != "Revenu"]["montant"].sum()
             sold = rev - dep
@@ -319,7 +349,6 @@ def page_dashboard():
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # Camembert
             df_dep = df_m[df_m["type"] != "Revenu"]
             if not df_dep.empty:
                 st.markdown('<div class="sec-label">Répartition des dépenses</div>',
@@ -336,7 +365,6 @@ def page_dashboard():
                                       margin=dict(t=10,b=10,l=10,r=10))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
-            # Courbe évolution
             st.markdown('<div class="sec-label">Évolution des dépenses (6 mois)</div>',
                         unsafe_allow_html=True)
             trend = (df[df["type"] != "Revenu"]
@@ -357,7 +385,6 @@ def page_dashboard():
             )
             st.plotly_chart(fig_line, use_container_width=True)
 
-            # Dernières opérations
             st.markdown('<div class="sec-label">Dernières opérations</div>',
                         unsafe_allow_html=True)
             html = '<div class="card">'
@@ -394,7 +421,7 @@ def page_dashboard():
             if not desc.strip():
                 st.warning("Veuillez saisir une description.")
             else:
-                full_df, sha = get_budget()
+                full_df, sha = read_budget_cached()
                 new_row = pd.DataFrame([{
                     "id":          secrets.token_hex(8),
                     "user_email":  email,
@@ -405,7 +432,7 @@ def page_dashboard():
                     "montant":     mt,
                     "auteur":      email.split("@")[0],
                 }])
-                save_budget(pd.concat([full_df, new_row], ignore_index=True), sha)
+                write_budget(pd.concat([full_df, new_row], ignore_index=True), sha)
                 st.success("✅ Enregistré !")
                 st.rerun()
 
@@ -415,7 +442,7 @@ def page_dashboard():
             st.info("Aucune transaction enregistrée.")
         else:
             cats = ["Toutes"] + sorted(df["categorie"].dropna().unique().tolist())
-            sel  = st.selectbox("Filtrer par catégorie", cats, label_visibility="collapsed")
+            sel  = st.selectbox("Filtrer", cats, label_visibility="collapsed")
             df_f = df if sel == "Toutes" else df[df["categorie"] == sel]
 
             for _, row in df_f.iterrows():
@@ -441,9 +468,9 @@ def page_dashboard():
                     </div>""", unsafe_allow_html=True)
                 with col_del:
                     if st.button("🗑", key=f"d_{tx_id}"):
-                        full_df, sha = get_budget()
+                        full_df, sha = read_budget_cached()
                         full_df = full_df[full_df["id"].astype(str) != tx_id]
-                        save_budget(full_df, sha)
+                        write_budget(full_df, sha)
                         st.rerun()
 
     # ══ COMPTE ═══════════════════════════════════════
@@ -455,15 +482,15 @@ def page_dashboard():
             <div style="font-size:12px;color:#aaa;margin-top:4px">Compte actif</div>
         </div>""", unsafe_allow_html=True)
 
-        # Affichage MDP en clair sur demande
-        df_u, _ = get_users()
+        # Identifiants en clair
+        df_u, _ = read_users()
         if not df_u.empty:
-            row_u = df_u[df_u["email"] == email]
+            row_u = df_u[df_u["email"].astype(str) == email]
             if not row_u.empty:
                 with st.expander("🔑 Voir mes identifiants"):
                     st.markdown(f"""
                     <div class="card">
-                        <div style="margin-bottom:.5rem">
+                        <div style="margin-bottom:.75rem">
                             <span style="font-size:11px;color:#aaa;text-transform:uppercase;
                                   letter-spacing:.06em">Email</span>
                             <div style="font-weight:700;font-size:15px;color:#1A1A1A;
@@ -504,12 +531,11 @@ def page_dashboard():
         if st.button("Se déconnecter"):
             st.session_state.logged_in  = False
             st.session_state.user_email = ""
-            _load.clear()
             st.rerun()
 
 
 # ─────────────────────────────────────────────────────
-# 8. ROUTAGE
+# 9. ROUTAGE
 # ─────────────────────────────────────────────────────
 if st.session_state.logged_in:
     page_dashboard()

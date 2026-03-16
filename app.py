@@ -7,40 +7,57 @@ from datetime import datetime
 import os
 
 # ==========================================
-# 1. CONFIGURATION ET STYLE (MINIMALISTE)
+# 1. CONFIGURATION ET STYLE (NOIR & BLANC)
 # ==========================================
 st.set_page_config(page_title="H&L Budget", layout="centered")
 
 st.markdown("""
     <style>
+    /* Fond blanc et texte noir */
     .stApp { background-color: #FFFFFF; color: #1A1A1A; }
     h1, h2, h3 { color: #1A1A1A !important; font-family: 'Helvetica Neue', sans-serif; font-weight: 600; }
+    
+    /* Boutons noirs */
     .stButton>button { 
         width: 100%; border-radius: 10px; border: 1px solid #1A1A1A; 
         background-color: #1A1A1A; color: white; padding: 10px; font-weight: bold;
     }
+    .stButton>button:hover { background-color: #333333; color: white; border: 1px solid #333333; }
+    
+    /* Cartes d'historique */
     .card { 
         background-color: #F9F9F9; padding: 15px; border-radius: 12px; 
         margin-bottom: 12px; border: 1px solid #EEEEEE;
         box-shadow: 0px 2px 5px rgba(0,0,0,0.05);
     }
-    .user-tag { background-color: #E0E0E0; color: #1A1A1A; padding: 3px 10px; border-radius: 15px; font-size: 0.75em; font-weight: bold; }
+    
+    /* Tags utilisateurs */
+    .user-tag { 
+        background-color: #E0E0E0; color: #1A1A1A; padding: 3px 10px; 
+        border-radius: 15px; font-size: 0.75em; font-weight: bold; 
+    }
+    
+    /* Menus déroulants */
     .stExpander { border: 1px solid #EEE !important; border-radius: 12px !important; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. GESTION DE LA BASE DE DONNÉES
+# 2. GESTION DES TABLES (SQLITE)
 # ==========================================
 DB_NAME = "hl_budget_final.db"
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT)')
+    # Table 1 : Authentification
+    c.execute('''CREATE TABLE IF NOT EXISTS users 
+                 (username TEXT PRIMARY KEY, password TEXT)''')
+    # Table 2 : Budget (Transactions)
     c.execute('''CREATE TABLE IF NOT EXISTS transactions 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, description TEXT, 
-                  categorie TEXT, type TEXT, montant REAL, paiement TEXT, auteur TEXT)''')
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  date TEXT, description TEXT, categorie TEXT, 
+                  type TEXT, montant REAL, paiement TEXT, auteur TEXT)''')
     conn.commit()
     conn.close()
 
@@ -67,7 +84,7 @@ def login_user(username, password):
 init_db()
 
 # ==========================================
-# 3. AUTHENTIFICATION
+# 3. SYSTÈME DE CONNEXION
 # ==========================================
 if 'auth' not in st.session_state:
     st.session_state.auth = False
@@ -88,55 +105,56 @@ if not st.session_state.auth:
             else: st.error("Identifiants incorrects.")
             
     with tab2:
-        nu = st.text_input("Nom d'utilisateur", key="reg_user")
-        np = st.text_input("Mot de passe", type="password", key="reg_pass")
-        if st.button("Valider la creation"):
+        nu = st.text_input("Choisir un nom", key="reg_user")
+        np = st.text_input("Choisir un mot de passe", type="password", key="reg_pass")
+        if st.button("Valider l'inscription"):
             if nu and np:
-                if add_user(nu, np): st.success("Compte cree. Connectez-vous.")
-                else: st.error("Nom deja pris.")
+                if add_user(nu, np): st.success("Compte cree avec succes.")
+                else: st.error("Ce nom est deja utilise.")
     st.stop()
 
 # ==========================================
-# 4. RÉCUPÉRATION ET FILTRES
+# 4. RÉCUPÉRATION DES DONNÉES
 # ==========================================
 conn = sqlite3.connect(DB_NAME)
 df = pd.read_sql_query("SELECT * FROM transactions", conn)
 conn.close()
 
-st.sidebar.write(f"Utilisateur: {st.session_state.user}")
+# Barre latérale pour déconnexion
+st.sidebar.write(f"Connecte en tant que : **{st.session_state.user}**")
 if st.sidebar.button("Deconnexion"):
     st.session_state.auth = False
     st.rerun()
 
 st.title("H&L Budget Pro")
 
+# ==========================================
+# 5. ANALYSE (CAMEMBERT & EVOLUTION)
+# ==========================================
 if not df.empty:
     df["date"] = pd.to_datetime(df["date"])
     
-    with st.expander("Filtres et Periode", expanded=False):
+    with st.expander("Filtres d'analyse", expanded=False):
         f_cat = st.multiselect("Categories", options=df["categorie"].unique(), default=df["categorie"].unique())
-        f_vue = st.selectbox("Regrouper par", ["Jour", "Semaine", "Mois", "Annee"])
+        f_vue = st.selectbox("Vue par", ["Jour", "Semaine", "Mois", "Annee"])
     
     df_filt = df[df["categorie"].isin(f_cat)].copy()
 
-    # ==========================================
-    # 5. ANALYSE (CORRIGÉE)
-    # ==========================================
     col_g1, col_g2 = st.columns(2)
     
     with col_g1:
-        df_depenses = df_filt[df_filt['type'] != "Revenu"]
-        if not df_depenses.empty:
-            # Correction ici : Utilisation de sequential.Greys
-            fig_pie = px.pie(df_depenses, values='montant', names='categorie', 
-                             title="Repartition",
-                             color_discrete_sequence=px.colors.sequential.Greys)
+        # Camembert de répartition (Seulement les dépenses)
+        df_dep = df_filt[df_filt['type'] != "Revenu"]
+        if not df_dep.empty:
+            fig_pie = px.pie(df_dep, values='montant', names='categorie', 
+                             title="Repartition", hole=0.4,
+                             color_discrete_sequence=px.colors.sequential.Greys_r)
             fig_pie.update_layout(showlegend=False, height=220, margin=dict(t=30, b=0, l=0, r=0))
             st.plotly_chart(fig_pie, use_container_width=True)
-        else:
-            st.write("Pas de depenses.")
+        else: st.write("Aucune depense.")
 
     with col_g2:
+        # Courbe d'évolution
         freq_map = {"Jour": "D", "Semaine": "W", "Mois": "ME", "Annee": "YE"}
         df_trend = df_filt.set_index("date").resample(freq_map[f_vue])["montant"].sum().reset_index()
         fig_line = px.line(df_trend, x="date", y="montant", title="Evolution",
@@ -151,7 +169,7 @@ st.divider()
 # ==========================================
 with st.expander("Nouvelle Operation", expanded=False):
     with st.form("main_form", clear_on_submit=True):
-        desc = st.text_input("Description")
+        desc = st.text_input("Description (ex: Essence, Loyer)")
         c1, c2 = st.columns(2)
         with c1:
             mt = st.number_input("Montant (EUR)", min_value=0.0, format="%.2f")
@@ -165,17 +183,21 @@ with st.expander("Nouvelle Operation", expanded=False):
         if st.form_submit_button("Enregistrer"):
             conn = sqlite3.connect(DB_NAME)
             c = conn.cursor()
-            c.execute("INSERT INTO transactions (date, description, categorie, type, montant, paiement, auteur) VALUES (?,?,?,?,?,?,?)",
+            c.execute('''INSERT INTO transactions 
+                         (date, description, categorie, type, montant, paiement, auteur) 
+                         VALUES (?,?,?,?,?,?,?)''',
                       (dt.strftime('%Y-%m-%d'), desc, cat, tp, mt, mp, st.session_state.user))
             conn.commit()
             conn.close()
+            st.success("Enregistre !")
             st.rerun()
 
 # ==========================================
-# 7. HISTORIQUE
+# 7. HISTORIQUE & SUPPRESSION
 # ==========================================
-st.subheader("Historique")
+st.subheader("Historique des mouvements")
 if not df.empty:
+    # Affichage du plus récent au plus ancien
     for index, row in df.sort_values("date", ascending=False).iterrows():
         st.markdown(f"""
         <div class="card">
@@ -184,16 +206,19 @@ if not df.empty:
                 <b style="font-size: 1.1em;">{row['montant']:.2f} EUR</b>
             </div>
             <div style="font-weight: 500; margin-top: 5px;">{row['description']}</div>
-            <div style="margin-top: 8px;">
+            <div style="margin-top: 10px;">
                 <span class="user-tag">Auteur: {row['auteur']}</span>
+                <span style="font-size: 0.75em; color: #999; margin-left: 10px;">{row['paiement']}</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("Supprimer", key=f"del_{row['id']}"):
+        if st.button("Retirer", key=f"del_{row['id']}"):
             conn = sqlite3.connect(DB_NAME)
             c = conn.cursor()
             c.execute("DELETE FROM transactions WHERE id = ?", (int(row['id']),))
             conn.commit()
             conn.close()
             st.rerun()
+else:
+    st.info("Aucune operation dans la base.")

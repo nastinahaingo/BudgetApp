@@ -107,6 +107,7 @@ CATEGORIES = {
     "🚗 Transport":    ("#EEF4FF", "#2563EB"),
     "🎬 Loisirs":      ("#F0FFF4", "#2D6A0F"),
     "🏥 Santé":        ("#FFFBEE", "#A16207"),
+    "💰 Salaire":      ("#F0FFF4", "#2D6A0F"),
     "📦 Autre":        ("#F8F8F8", "#888"),
 }
 TYPES    = ["Variable", "Fixe", "Revenu"]

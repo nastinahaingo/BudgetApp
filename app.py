@@ -677,27 +677,25 @@ def page_dashboard():
                 background: #F5F4F0 !important;
                 color: #555 !important;
                 border: none !important;
-                border-radius: 8px !important;
-                padding: 4px 10px !important;
-                font-size: 13px !important;
-                font-weight: 500 !important;
-                min-height: 30px !important;
-                height: 30px !important;
+                border-radius: 10px !important;
+                font-size: 18px !important;
+                min-height: 38px !important;
+                height: 38px !important;
+                width: 100% !important;
+                padding: 0 !important;
                 line-height: 1 !important;
-                width: auto !important;
             }
             .btn-supprimer button {
                 background: #FFF0F0 !important;
                 color: #D94040 !important;
                 border: none !important;
-                border-radius: 8px !important;
-                padding: 4px 10px !important;
-                font-size: 13px !important;
-                font-weight: 500 !important;
-                min-height: 30px !important;
-                height: 30px !important;
+                border-radius: 10px !important;
+                font-size: 18px !important;
+                min-height: 38px !important;
+                height: 38px !important;
+                width: 100% !important;
+                padding: 0 !important;
                 line-height: 1 !important;
-                width: auto !important;
             }
             </style>
             """, unsafe_allow_html=True)
@@ -734,17 +732,17 @@ def page_dashboard():
 
                     # Boutons picto petits, collés sous la ligne de séparation
                     st.markdown('<div class="tx-actions">', unsafe_allow_html=True)
-                    col_e, col_d, col_spacer = st.columns([1, 1, 8])
+                    col_e, col_d = st.columns(2)
                     with col_e:
                         st.markdown('<div class="btn-modifier">', unsafe_allow_html=True)
                         lbl_edit = "✕" if is_editing_this else "✏️"
-                        if st.button(lbl_edit, key=f"e_{tx_id}"):
+                        if st.button(lbl_edit, key=f"e_{tx_id}", use_container_width=True):
                             st.session_state.editing_id = None if is_editing_this else tx_id
                             st.rerun()
                         st.markdown('</div>', unsafe_allow_html=True)
                     with col_d:
                         st.markdown('<div class="btn-supprimer">', unsafe_allow_html=True)
-                        if st.button("🗑", key=f"d_{tx_id}"):
+                        if st.button("🗑", key=f"d_{tx_id}", use_container_width=True):
                             _, fresh_sha = gh_read(BUDGET_FILE)
                             full_df, _   = read_budget_cached()
                             full_df      = full_df[full_df["id"].astype(str) != tx_id]

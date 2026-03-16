@@ -1,70 +1,148 @@
 import streamlit as st
 import pandas as pd
-import os
-from datetime import datetime
+import plotly.graph_objects as go
+import plotly.express as px
 
-# --- CONFIGURATION & STYLE ---
-st.set_page_config(page_title="LuxeBudget Mobile", layout="centered") # Centré pour mobile
+# -----------------------------
+# Configuration page
+# -----------------------------
 
+st.set_page_config(
+    page_title="Dashboard Dépenses",
+    page_icon="💰",
+    layout="wide"
+)
+
+# Style fond blanc texte noir
 st.markdown("""
-    <style>
-    .stApp { background-color: #050505; color: #E0E0E0; }
-    .stButton>button { width: 100%; border-radius: 20px; border: 1px solid #d4af37; background-color: transparent; color: #d4af37; }
-    .delete-btn { color: #ff4b4b; cursor: pointer; }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+body {
+    background-color: white;
+    color: black;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# --- GESTION DU FICHIER DE DONNÉES ---
-DB_FILE = "budget_data.csv"
+st.title("💰 Dashboard de suivi des dépenses")
 
-def load_data():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
-    return pd.DataFrame(columns=["Date", "Description", "Catégorie", "Type", "Montant"])
+# -----------------------------
+# Données exemple
+# -----------------------------
 
-if 'df' not in st.session_state:
-    st.session_state.df = load_data()
+data = {
+    "Mois": [
+        "Janvier","Février","Mars",
+        "Avril","Mai","Juin",
+        "Juillet","Août","Septembre",
+        "Octobre","Novembre","Décembre"
+    ],
+    "Depenses": [
+        1200,900,1500,
+        1100,1700,1300,
+        1600,1400,1500,
+        1800,1700,1900
+    ],
+    "Categorie":[
+        "Loyer","Courses","Transport",
+        "Loisirs","Courses","Transport",
+        "Vacances","Courses","Transport",
+        "Loisirs","Courses","Cadeaux"
+    ]
+}
 
-# --- LOGIQUE DE SUPPRESSION ---
-def delete_row(index):
-    st.session_state.df = st.session_state.df.drop(index).reset_index(drop=True)
-    st.session_state.df.to_csv(DB_FILE, index=False)
-    st.rerun()
+df = pd.DataFrame(data)
 
-# --- INTERFACE MOBILE ---
-st.title("⚜️ Mon Budget")
+budget_annuel = 20000
+total_depenses = df["Depenses"].sum()
 
-# Formulaire d'ajout (replié par défaut pour gagner de la place)
-with st.expander("➕ Ajouter une dépense/revenu", expanded=False):
-    with st.form("add_form", clear_on_submit=True):
-        date = st.date_input("Date", datetime.now())
-        desc = st.text_input("Quoi ? (ex: Plein Essence)")
-        cat = st.selectbox("Catégorie", ["Essence", "Courses", "Loyer", "Loisirs", "Salaire"])
-        nature = "Revenu" if cat == "Salaire" else "Charge Variable" if cat in ["Essence", "Courses", "Loisirs"] else "Charge Fixe"
-        montant = st.number_input("Montant (€)", min_value=0.0)
-        
-        if st.form_submit_button("Enregistrer"):
-            new_entry = pd.DataFrame([[date, desc, cat, nature, montant]], columns=st.session_state.df.columns)
-            st.session_state.df = pd.concat([st.session_state.df, new_entry], ignore_index=True)
-            st.session_state.df.to_csv(DB_FILE, index=False)
-            st.success("Ajouté !")
-            st.rerun()
+# -----------------------------
+# Layout colonnes
+# -----------------------------
 
-st.divider()
+col1, col2 = st.columns(2)
 
-# --- LISTE DES DÉPENSES AVEC OPTION "RETIRER" ---
-st.subheader("📋 Historique & Retrait")
+# -----------------------------
+# Jauge Budget
+# -----------------------------
 
-if not st.session_state.df.empty:
-    for index, row in st.session_state.df.iloc[::-1].iterrows(): # Afficher du plus récent au plus ancien
-        col1, col2, col3 = st.columns([2, 1, 1])
-        with col1:
-            st.write(f"**{row['Description']}** \n*{row['Date']}*")
-        with col2:
-            st.write(f"{row['Montant']} €")
-        with col3:
-            if st.button("Supprimer", key=f"del_{index}"):
-                delete_row(index)
-        st.write("---")
-else:
-    st.info("Aucune dépense enregistrée.")
+with col1:
+
+    st.subheader("Budget utilisé")
+
+    fig_jauge = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=total_depenses,
+        title={'text': "Dépenses totales"},
+        gauge={
+            'axis': {'range': [None, budget_annuel]},
+            'bar': {'color': "black"},
+            'bgcolor': "white",
+            'steps': [
+                {'range': [0, budget_annuel*0.5], 'color': "#e8f5e9"},
+                {'range': [budget_annuel*0.5, budget_annuel*0.8], 'color': "#fff3cd"},
+                {'range': [budget_annuel*0.8, budget_annuel], 'color': "#f8d7da"}
+            ]
+        }
+    ))
+
+    fig_jauge.update_layout(
+        paper_bgcolor="white",
+        font=dict(color="black")
+    )
+
+    st.plotly_chart(fig_jauge, use_container_width=True)
+
+# -----------------------------
+# Répartition dépenses
+# -----------------------------
+
+with col2:
+
+    st.subheader("Répartition des dépenses")
+
+    df_cat = df.groupby("Categorie")["Depenses"].sum().reset_index()
+
+    fig_pie = px.pie(
+        df_cat,
+        values="Depenses",
+        names="Categorie",
+        hole=0.4
+    )
+
+    fig_pie.update_layout(
+        paper_bgcolor="white",
+        font=dict(color="black")
+    )
+
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+# -----------------------------
+# Evolution mensuelle
+# -----------------------------
+
+st.subheader("Evolution mensuelle des dépenses")
+
+fig_line = px.line(
+    df,
+    x="Mois",
+    y="Depenses",
+    markers=True
+)
+
+fig_line.update_layout(
+    plot_bgcolor="white",
+    paper_bgcolor="white",
+    font=dict(color="black"),
+    xaxis_title="Mois",
+    yaxis_title="Montant (€)"
+)
+
+st.plotly_chart(fig_line, use_container_width=True)
+
+# -----------------------------
+# Tableau des données
+# -----------------------------
+
+st.subheader("Données")
+
+st.dataframe(df)

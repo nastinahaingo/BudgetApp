@@ -4,35 +4,38 @@ import os
 import plotly.express as px
 from datetime import datetime
 
-# --- 1. CONFIGURATION & DESIGN SAUGE ---
-st.set_page_config(page_title="Sauge Budget Pro", layout="centered")
+# --- 1. CONFIGURATION & DESIGN LIGHT (MOBILE) ---
+st.set_page_config(page_title="Sauge Budget Light", layout="centered")
 
 st.markdown("""
     <style>
-    /* Thème Sauge & Nature */
-    .stApp { background-color: #8fa382; color: #fdfdfd; }
-    h1, h2, h3 { color: #fdfdfd !important; font-family: 'Helvetica Neue', sans-serif; font-weight: 300; }
+    /* Fond Blanc et Texte Noir */
+    .stApp { background-color: #FFFFFF; color: #1A1A1A; }
     
-    /* Boutons et Inputs */
+    /* Titres Typo Propre */
+    h1, h2, h3 { color: #1A1A1A !important; font-family: 'Helvetica Neue', sans-serif; font-weight: 600; }
+    
+    /* Boutons Minimalistes */
     .stButton>button { 
-        width: 100%; border-radius: 12px; border: none; 
-        background-color: #7a8c6f; color: white; padding: 10px; font-weight: bold;
+        width: 100%; border-radius: 10px; border: 1px solid #1A1A1A; 
+        background-color: #1A1A1A; color: white; padding: 10px;
     }
-    .stButton>button:hover { background-color: #6a7a61; }
+    .stButton>button:hover { background-color: #333333; color: white; }
     
-    /* Cartes et boîtes de filtres */
+    /* Cartes Dépenses (Ombre légère pour relief) */
     .card { 
-        background-color: rgba(255, 255, 255, 0.15); 
-        padding: 15px; border-radius: 15px; 
-        margin-bottom: 12px; backdrop-filter: blur(8px);
-    }
-    .filter-box { 
-        background-color: rgba(0, 0, 0, 0.1); 
-        padding: 15px; border-radius: 15px; margin-bottom: 20px; 
+        background-color: #F9F9F9; 
+        padding: 15px; border-radius: 12px; 
+        margin-bottom: 12px; border: 1px solid #EEEEEE;
+        box-shadow: 0px 2px 4px rgba(0,0,0,0.05);
     }
     
-    /* Personnalisation des selects et inputs */
-    .stSelectbox, .stTextInput, .stNumberInput { background-color: rgba(255,255,255,0.1); border-radius: 10px; }
+    /* Filtres et Expander */
+    .stExpander { border: 1px solid #EEEEEE !important; border-radius: 12px !important; }
+    div[data-testid="stMetricValue"] { color: #1A1A1A !important; }
+    
+    /* Couleur des textes d'input */
+    label { color: #1A1A1A !important; font-weight: 500; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -45,7 +48,6 @@ def load_data():
         try:
             df = pd.read_csv(DB_FILE)
             df["Date"] = pd.to_datetime(df["Date"])
-            # Sécurité colonnes
             for col in COLONNES:
                 if col not in df.columns:
                     df[col] = "Non spécifié"
@@ -57,113 +59,91 @@ def load_data():
 if 'df' not in st.session_state:
     st.session_state.df = load_data()
 
-# --- 3. FILTRES ET ANALYSE ---
-st.title("🌿 Sauge Budget")
-
 df_raw = st.session_state.df
 
+# --- 3. INTERFACE PRINCIPALE ---
+st.title("📱 Mon Budget")
+
 if not df_raw.empty:
-    # Zone de filtres
-    st.markdown('<div class="filter-box">', unsafe_allow_html=True)
-    f_col1, f_col2, f_col3 = st.columns(3)
-    
-    with f_col1:
-        natures = df_raw["Type"].unique().tolist()
-        f_type = st.multiselect("Nature", options=natures, default=natures)
-    with f_col2:
-        cats = df_raw["Catégorie"].unique().tolist()
-        f_cat = st.multiselect("Catégorie", options=cats, default=cats)
-    with f_col3:
-        f_periode = st.selectbox("Vue par", ["Jour", "Semaine", "Mois", "Année"])
-    st.markdown('</div>', unsafe_allow_html=True)
+    # FILTRES
+    c_f1, c_f2 = st.columns(2)
+    with c_f1:
+        f_cat = st.multiselect("Filtrer par catégorie", options=df_raw["Catégorie"].unique(), default=df_raw["Catégorie"].unique())
+    with c_f2:
+        f_vue = st.selectbox("Vue par", ["Jour", "Mois", "Année"])
 
     # Application filtres
-    mask = df_raw["Type"].isin(f_type) & df_raw["Catégorie"].isin(f_cat)
-    df_filtered = df_raw[mask].copy()
+    df_filtered = df_raw[df_raw["Catégorie"].isin(f_cat)].copy()
 
-    # --- 4. GRAPHIQUE DYNAMIQUE ---
+    # --- 4. GRAPHIQUE D'ÉVOLUTION ---
     if not df_filtered.empty:
-        # Groupement temporel
-        freq_map = {"Jour": "D", "Semaine": "W", "Mois": "ME", "Année": "YE"}
-        df_trend = df_filtered.set_index("Date").resample(freq_map[f_periode])["Montant"].sum().reset_index()
+        freq = "D" if f_vue == "Jour" else "ME" if f_vue == "Mois" else "YE"
+        df_trend = df_filtered.set_index("Date").resample(freq)["Montant"].sum().reset_index()
         
-        fig = px.area(df_trend, x="Date", y="Montant", 
-                      color_discrete_sequence=['#fdfdfd'], 
-                      title=f"Tendance : {f_periode}")
+        fig = px.line(df_trend, x="Date", y="Montant", 
+                      color_discrete_sequence=['#1A1A1A'], 
+                      markers=True)
         
         fig.update_layout(
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            xaxis=dict(showgrid=False, color="white", title=""),
-            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.1)", color="white", title="Montant (€)"),
-            margin=dict(l=0, r=0, t=30, b=0), height=250
+            xaxis=dict(showgrid=False, color="#1A1A1A"),
+            yaxis=dict(showgrid=True, gridcolor="#EEEEEE", color="#1A1A1A"),
+            margin=dict(l=0, r=0, t=10, b=0), height=200
         )
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Petit calcul du total filtré
-        st.write(f"**Total sur la sélection :** {df_filtered['Montant'].sum():,.2f} €")
-    else:
-        st.info("Ajustez les filtres pour voir le graphique.")
 
 st.divider()
 
-# --- 5. SAISIE DE TRANSACTION ---
-with st.expander("➕ Nouvelle Transaction Détaillée", expanded=False):
-    with st.form("form_global", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            d_input = st.date_input("Date", datetime.now())
-            t_input = st.selectbox("Type", ["Dépense Variable", "Dépense Fixe", "Revenu"])
-            c_input = st.selectbox("Catégorie", ["Transport", "Alimentation", "Habitation", "Loisirs", "Santé", "Revenus", "Autre"])
-        with c2:
-            m_input = st.number_input("Montant (€)", min_value=0.0, format="%.2f")
-            p_input = st.selectbox("Paiement", ["Carte Bancaire", "Virement", "Espèces", "Prélèvement"])
-            i_input = st.select_slider("Importance", options=["Superflu", "Utile", "Indispensable"])
+# --- 5. SAISIE ---
+with st.expander("➕ Ajouter une dépense ou revenu", expanded=False):
+    with st.form("light_form", clear_on_submit=True):
+        date_s = st.date_input("Date", datetime.now())
+        desc = st.text_input("Description (ex: Essence, Loyer...)")
         
-        desc_input = st.text_input("Description")
+        col1, col2 = st.columns(2)
+        with col1:
+            mt = st.number_input("Montant (€)", min_value=0.0)
+            cat = st.selectbox("Catégorie", ["Transport", "Alimentation", "Habitation", "Loisirs", "Santé", "Revenu", "Autre"])
+        with col2:
+            type_m = st.selectbox("Type", ["Dépense Variable", "Dépense Fixe", "Revenu"])
+            imp = st.selectbox("Importance", ["Superflu", "Utile", "Indispensable"])
+        
+        mp = st.selectbox("Paiement", ["Carte Bancaire", "Virement", "Espèces"])
 
-        if st.form_submit_button("💰 Enregistrer l'opération"):
+        if st.form_submit_button("Enregistrer"):
             new_row = pd.DataFrame([{
-                "Date": pd.to_datetime(d_input),
-                "Description": desc_input,
-                "Catégorie": c_input,
-                "Sous-Catégorie": "Général",
-                "Mode de Paiement": p_input,
-                "Type": t_input,
-                "Importance": i_input,
-                "Montant": m_input
+                "Date": pd.to_datetime(date_s), "Description": desc, "Catégorie": cat,
+                "Sous-Catégorie": "Général", "Mode de Paiement": mp, "Type": type_m,
+                "Importance": imp, "Montant": mt
             }])
             st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
             st.session_state.df.to_csv(DB_FILE, index=False)
-            st.success("Opération enregistrée")
+            st.success("Ajouté !")
             st.rerun()
 
 # --- 6. HISTORIQUE ---
 st.subheader("📜 Historique")
 
 if not st.session_state.df.empty:
-    # Tri par date décroissante pour l'affichage
-    df_display = st.session_state.df.sort_values(by="Date", ascending=False)
-    
-    for index, row in df_display.iterrows():
-        # Formatage de la date pour la carte
-        d_fmt = row['Date'].strftime("%d %b %Y") if isinstance(row['Date'], datetime) else str(row['Date'])
-        
+    df_disp = st.session_state.df.sort_values(by="Date", ascending=False)
+    for index, row in df_disp.iterrows():
+        # Carte blanche style iOS/Android
         st.markdown(f"""
         <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 0.8em; opacity: 0.8;">{d_fmt} | {row['Catégorie']}</span>
-                <b style="font-size: 1.1em;">{row['Montant']:.2f} €</b>
+            <div style="display: flex; justify-content: space-between;">
+                <span style="font-size: 0.8em; color: #666;">{row['Date'].strftime('%d/%m/%Y')} | {row['Catégorie']}</span>
+                <b style="color: {'#2ECC71' if row['Type'] == 'Revenu' else '#1A1A1A'};">
+                    {'+' if row['Type'] == 'Revenu' else '-'}{row['Montant']:.2f} €
+                </b>
             </div>
-            <div style="margin-top: 5px; font-weight: bold;">{row['Description']}</div>
-            <div style="font-size: 0.75em; opacity: 0.7; margin-top: 3px;">
-                💳 {row['Mode de Paiement']} • ✨ {row['Importance']}
-            </div>
+            <div style="font-weight: 500; margin-top: 5px;">{row['Description']}</div>
+            <div style="font-size: 0.75em; color: #999; margin-top: 2px;">{row['Mode de Paiement']} • {row['Importance']}</div>
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("Supprimer", key=f"del_{index}"):
+        if st.button("Retirer", key=f"del_{index}"):
             st.session_state.df = st.session_state.df.drop(index).reset_index(drop=True)
             st.session_state.df.to_csv(DB_FILE, index=False)
             st.rerun()
 else:
-    st.info("Commencez par ajouter une transaction.")
+    st.info("Aucune donnée enregistrée.")

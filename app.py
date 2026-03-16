@@ -1,148 +1,83 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
+import os
+from datetime import datetime
 
-# -----------------------------
-# Configuration page
-# -----------------------------
+# --- CONFIGURATION STYLE ---
+st.set_page_config(page_title="Onyx Budget Privé", layout="centered")
 
-st.set_page_config(
-    page_title="Dashboard Dépenses",
-    page_icon="💰",
-    layout="wide"
-)
-
-# Style fond blanc texte noir
 st.markdown("""
-<style>
-body {
-    background-color: white;
-    color: black;
-}
-</style>
-""", unsafe_allow_html=True)
+    <style>
+    .stApp { background-color: #050505; color: #E0E0E0; }
+    .stHeader { border-bottom: 2px solid #d4af37; }
+    .stButton>button { border-radius: 5px; border: 1px solid #d4af37; background-color: #111; color: #d4af37; font-weight: bold; }
+    .card { background-color: #111; padding: 15px; border-radius: 10px; border-left: 5px solid #d4af37; margin-bottom: 10px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-st.title("💰 Dashboard de suivi des dépenses")
+# --- BASE DE DONNÉES ---
+DB_FILE = "budget_expert.csv"
 
-# -----------------------------
-# Données exemple
-# -----------------------------
+def load_data():
+    if os.path.exists(DB_FILE):
+        return pd.read_csv(DB_FILE)
+    return pd.DataFrame(columns=["Date", "Description", "Catégorie", "Sous-Catégorie", "Mode de Paiement", "Type", "Importance", "Montant"])
 
-data = {
-    "Mois": [
-        "Janvier","Février","Mars",
-        "Avril","Mai","Juin",
-        "Juillet","Août","Septembre",
-        "Octobre","Novembre","Décembre"
-    ],
-    "Depenses": [
-        1200,900,1500,
-        1100,1700,1300,
-        1600,1400,1500,
-        1800,1700,1900
-    ],
-    "Categorie":[
-        "Loyer","Courses","Transport",
-        "Loisirs","Courses","Transport",
-        "Vacances","Courses","Transport",
-        "Loisirs","Courses","Cadeaux"
-    ]
-}
+if 'df' not in st.session_state:
+    st.session_state.df = load_data()
 
-df = pd.DataFrame(data)
+# --- FORMULAIRE DÉTAILLÉ ---
+st.title("⚜️ Onyx Budget")
+st.subheader("Saisie détaillée des flux")
 
-budget_annuel = 20000
-total_depenses = df["Depenses"].sum()
+with st.expander("📝 Nouvelle Entrée Détaillée", expanded=True):
+    with st.form("main_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            date = st.date_input("Date", datetime.now())
+            type_mvt = st.selectbox("Type", ["Dépense Variable", "Dépense Fixe", "Revenu"])
+        with col2:
+            montant = st.number_input("Montant (€)", min_value=0.0, step=0.01, format="%.2f")
+            paiement = st.selectbox("Moyen de paiement", ["Carte Bancaire", "Virement", "Espèces", "Prélèvement"])
 
-# -----------------------------
-# Layout colonnes
-# -----------------------------
+        desc = st.text_input("Description (ex: Plein station Total, Courses Bio...)")
+        
+        col3, col4 = st.columns(2)
+        with col3:
+            cat = st.selectbox("Catégorie", ["Transport", "Alimentation", "Habitation", "Loisirs", "Santé", "Revenus", "Autre"])
+        with col4:
+            importance = st.select_slider("Importance", options=["Superflu", "Plutôt utile", "Indispensable"])
 
-col1, col2 = st.columns(2)
+        if st.form_submit_button("Enregistrer avec précision"):
+            new_row = pd.DataFrame([[date, desc, cat, "Général", paiement, type_mvt, importance, montant]], 
+                                   columns=st.session_state.df.columns)
+            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+            st.session_state.df.to_csv(DB_FILE, index=False)
+            st.success("Transaction enregistrée.")
+            st.rerun()
 
-# -----------------------------
-# Jauge Budget
-# -----------------------------
+st.divider()
 
-with col1:
+# --- AFFICHAGE & SUPPRESSION ---
+st.subheader("📜 Derniers mouvements")
 
-    st.subheader("Budget utilisé")
-
-    fig_jauge = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=total_depenses,
-        title={'text': "Dépenses totales"},
-        gauge={
-            'axis': {'range': [None, budget_annuel]},
-            'bar': {'color': "black"},
-            'bgcolor': "white",
-            'steps': [
-                {'range': [0, budget_annuel*0.5], 'color': "#e8f5e9"},
-                {'range': [budget_annuel*0.5, budget_annuel*0.8], 'color': "#fff3cd"},
-                {'range': [budget_annuel*0.8, budget_annuel], 'color': "#f8d7da"}
-            ]
-        }
-    ))
-
-    fig_jauge.update_layout(
-        paper_bgcolor="white",
-        font=dict(color="black")
-    )
-
-    st.plotly_chart(fig_jauge, use_container_width=True)
-
-# -----------------------------
-# Répartition dépenses
-# -----------------------------
-
-with col2:
-
-    st.subheader("Répartition des dépenses")
-
-    df_cat = df.groupby("Categorie")["Depenses"].sum().reset_index()
-
-    fig_pie = px.pie(
-        df_cat,
-        values="Depenses",
-        names="Categorie",
-        hole=0.4
-    )
-
-    fig_pie.update_layout(
-        paper_bgcolor="white",
-        font=dict(color="black")
-    )
-
-    st.plotly_chart(fig_pie, use_container_width=True)
-
-# -----------------------------
-# Evolution mensuelle
-# -----------------------------
-
-st.subheader("Evolution mensuelle des dépenses")
-
-fig_line = px.line(
-    df,
-    x="Mois",
-    y="Depenses",
-    markers=True
-)
-
-fig_line.update_layout(
-    plot_bgcolor="white",
-    paper_bgcolor="white",
-    font=dict(color="black"),
-    xaxis_title="Mois",
-    yaxis_title="Montant (€)"
-)
-
-st.plotly_chart(fig_line, use_container_width=True)
-
-# -----------------------------
-# Tableau des données
-# -----------------------------
-
-st.subheader("Données")
-
-st.dataframe(df)
+if not st.session_state.df.empty:
+    # On affiche les 10 dernières transactions
+    for index, row in st.session_state.df.iloc[::-1].iterrows():
+        with st.container():
+            st.markdown(f"""
+            <div class="card">
+                <span style="color:#d4af37; font-size: 0.8em;">{row['Date']} • {row['Catégorie']}</span><br>
+                <b style="font-size: 1.1em;">{row['Description']}</b><br>
+                <span style="font-size: 0.9em;">💳 {row['Mode de Paiement']} | ✨ {row['Importance']}</span>
+                <h4 style="margin: 5px 0; color: {'#FFF' if row['Type'] == 'Revenu' else '#ff4b4b'};">
+                    {'+' if row['Type'] == 'Revenu' else '-'}{row['Montant']:.2f} €
+                </h4>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("Retirer", key=f"del_{index}"):
+                st.session_state.df = st.session_state.df.drop(index).reset_index(drop=True)
+                st.session_state.df.to_csv(DB_FILE, index=False)
+                st.rerun()
+else:
+    st.info("Aucune transaction.")

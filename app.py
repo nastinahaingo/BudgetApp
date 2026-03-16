@@ -803,57 +803,36 @@ def page_dashboard():
                 is_rev  = row["type"] == "Revenu"
                 bg, _   = get_cat_style(row["categorie"])
                 icon    = get_cat_icon(row["categorie"])
-                amt_cls = "green" if is_rev else "red"
                 sign    = "+" if is_rev else "−"
                 tx_id   = str(row["id"])
                 is_mine = str(row.get("user_email","")) == email
-                badge   = f'<span class="badge {"mine" if is_mine else ""}">{row["auteur"]}</span>'
+                badge   = f'<span class="badge {"mine" if is_mine else ""}">{ row["auteur"]}</span>'
                 is_editing_this = st.session_state.editing_id == tx_id
-
                 amt_color = "#2D6A0F" if is_rev else "#D94040"
-                # Icône du bouton modifier selon état (✕ si en cours d'édition)
                 edit_icon = "✕" if is_editing_this else "✏️"
 
-                st.markdown(f"""
-                <div style="background:#fff;border-radius:16px;
-                     padding:.75rem 1rem .75rem;
-                     margin-bottom:.1rem;
-                     box-shadow:0 2px 14px rgba(0,0,0,.07);
-                     display:flex;align-items:center;gap:10px">
-                  <div style="width:36px;height:36px;border-radius:10px;background:{bg};
-                       display:flex;align-items:center;justify-content:center;
-                       font-size:18px;flex-shrink:0">{icon}</div>
-                  <div style="flex:1;min-width:0">
-                    <div style="font-size:13px;font-weight:600;color:#1A1A1A;
-                         white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                      {row['description']}</div>
-                    <div style="font-size:11px;color:#bbb;margin-top:2px">
-                      {row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']}
-                      {badge}</div>
-                  </div>
-                  <div style="font-size:14px;font-weight:800;color:{amt_color};
-                       white-space:nowrap;margin-right:8px">
-                    {sign}{row['montant']:,.2f} €</div>
-                  <div style="display:flex;gap:4px;flex-shrink:0">
-                    <span style="width:34px;height:34px"></span>
-                    <span style="width:34px;height:34px"></span>
-                  </div>
-                </div>""", unsafe_allow_html=True)
-
-                st.markdown(f"""
-                <style>
-                [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] #e_{tx_id}) {{
-                    position: relative;
-                    margin-top: -44px !important;
-                    margin-bottom: 0 !important;
-                    background: transparent !important;
-                    pointer-events: none;
-                }}
-                </style>""", unsafe_allow_html=True)
-
-                col_spacer, col_e, col_d = st.columns([10, 1, 1])
-                with col_spacer:
-                    st.markdown("")
+                # Carte + boutons dans une seule ligne de colonnes
+                col_card, col_e, col_d = st.columns([14, 1, 1])
+                with col_card:
+                    st.markdown(f"""
+                    <div style="background:#fff;border-radius:16px;
+                         padding:.75rem 1rem;margin-bottom:0;
+                         box-shadow:0 2px 14px rgba(0,0,0,.07);
+                         display:flex;align-items:center;gap:10px">
+                      <div style="width:36px;height:36px;border-radius:10px;background:{bg};
+                           display:flex;align-items:center;justify-content:center;
+                           font-size:18px;flex-shrink:0">{icon}</div>
+                      <div style="flex:1;min-width:0">
+                        <div style="font-size:13px;font-weight:600;color:#1A1A1A;
+                             white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                          {row['description']}</div>
+                        <div style="font-size:11px;color:#bbb;margin-top:2px">
+                          {row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']}
+                          {badge}</div>
+                      </div>
+                      <div style="font-size:14px;font-weight:800;color:{amt_color};white-space:nowrap">
+                        {sign}{row['montant']:,.2f} €</div>
+                    </div>""", unsafe_allow_html=True)
                 with col_e:
                     st.markdown('<div class="btn-modifier">', unsafe_allow_html=True)
                     if st.button(edit_icon, key=f"e_{tx_id}", use_container_width=True):
@@ -870,6 +849,7 @@ def page_dashboard():
                         if ok: st.rerun()
                         else:  st.error(f"Erreur : {err}")
                     st.markdown('</div>', unsafe_allow_html=True)
+
 
                 # ── Bloc modifier inline ──
                 if is_editing_this:

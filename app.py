@@ -572,51 +572,50 @@ def page_dashboard():
         # ── MODE AJOUT uniquement — la modification se fait inline dans l'historique ──
         st.markdown("### Nouvelle opération")
 
-            # Message de confirmation affiché après un ajout réussi
-            if st.session_state.get("add_success"):
-                st.success("✅ Transaction enregistrée avec succès !")
-                st.session_state.add_success = False
+        # Message de confirmation affiché après un ajout réussi
+        if st.session_state.get("add_success"):
+            st.success("✅ Transaction enregistrée avec succès !")
+            st.session_state.add_success = False
 
-            desc = st.text_input("Description", placeholder="Ex : Courses Leclerc",
-                                 key="add_desc", value=st.session_state.get("add_desc_val",""))
-            mt   = st.number_input("Montant (€)", min_value=0.01, step=0.01,
-                                   format="%.2f", key="add_mt",
-                                   value=st.session_state.get("add_mt_val", 0.01))
-            cat, sous_cat, nouvelle_cat = cat_selector("add")
-            tp   = st.selectbox("Type", TYPES, key="add_tp")
-            dt   = st.date_input("Date", value=date.today(), key="add_dt")
+        desc = st.text_input("Description", placeholder="Ex : Courses Leclerc",
+                             key="add_desc", value=st.session_state.get("add_desc_val",""))
+        mt   = st.number_input("Montant (€)", min_value=0.01, step=0.01,
+                               format="%.2f", key="add_mt",
+                               value=st.session_state.get("add_mt_val", 0.01))
+        cat, sous_cat, nouvelle_cat = cat_selector("add")
+        tp   = st.selectbox("Type", TYPES, key="add_tp")
+        dt   = st.date_input("Date", value=date.today(), key="add_dt")
 
-            if st.button("Enregistrer ✓", use_container_width=True, key="add_sub"):
-                if not desc.strip():
-                    st.warning("Veuillez saisir une description.")
+        if st.button("Enregistrer ✓", use_container_width=True, key="add_sub"):
+            if not desc.strip():
+                st.warning("Veuillez saisir une description.")
+            else:
+                cat_finale   = resolve_cat(cat, sous_cat, nouvelle_cat)
+                full_df, sha = read_budget_cached()
+                _, fresh_sha = gh_read(BUDGET_FILE)
+                if fresh_sha: sha = fresh_sha
+                new_row = pd.DataFrame([{
+                    "id":          secrets.token_hex(8),
+                    "user_email":  email,
+                    "date":        dt.strftime("%Y-%m-%d"),
+                    "description": desc.strip(),
+                    "categorie":   cat_finale,
+                    "type":        tp,
+                    "montant":     mt,
+                    "auteur":      email.split("@")[0],
+                }])
+                ok, err = write_budget(pd.concat([full_df, new_row], ignore_index=True), sha)
+                if ok:
+                    st.session_state.add_success  = True
+                    st.session_state.add_desc_val = ""
+                    st.session_state.add_mt_val   = 0.01
+                    for k in list(st.session_state.keys()):
+                        if k.startswith("add_") and k not in (
+                                "add_success","add_desc_val","add_mt_val"):
+                            del st.session_state[k]
+                    st.rerun()
                 else:
-                    cat_finale   = resolve_cat(cat, sous_cat, nouvelle_cat)
-                    full_df, sha = read_budget_cached()
-                    _, fresh_sha = gh_read(BUDGET_FILE)
-                    if fresh_sha: sha = fresh_sha
-                    new_row = pd.DataFrame([{
-                        "id":          secrets.token_hex(8),
-                        "user_email":  email,
-                        "date":        dt.strftime("%Y-%m-%d"),
-                        "description": desc.strip(),
-                        "categorie":   cat_finale,
-                        "type":        tp,
-                        "montant":     mt,
-                        "auteur":      email.split("@")[0],
-                    }])
-                    ok, err = write_budget(pd.concat([full_df, new_row], ignore_index=True), sha)
-                    if ok:
-                        # Réinitialise les champs via session_state
-                        st.session_state.add_success  = True
-                        st.session_state.add_desc_val = ""
-                        st.session_state.add_mt_val   = 0.01
-                        for k in list(st.session_state.keys()):
-                            if k.startswith("add_") and k not in (
-                                    "add_success","add_desc_val","add_mt_val"):
-                                del st.session_state[k]
-                        st.rerun()
-                    else:
-                        st.error(f"Erreur : {err}")
+                    st.error(f"Erreur : {err}")
 
     # ══ HISTORIQUE ═══════════════════════════════════
     with tab_history:

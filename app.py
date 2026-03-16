@@ -32,7 +32,7 @@ st.markdown("""
 # ==========================================
 # 2. GESTION DE LA BASE DE DONNÉES
 # ==========================================
-DB_NAME = "hl_budget_v4.db"
+DB_NAME = "hl_budget_final.db"
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -113,7 +113,6 @@ st.title("H&L Budget Pro")
 if not df.empty:
     df["date"] = pd.to_datetime(df["date"])
     
-    # --- FILTRES ---
     with st.expander("Filtres et Periode", expanded=False):
         f_cat = st.multiselect("Categories", options=df["categorie"].unique(), default=df["categorie"].unique())
         f_vue = st.selectbox("Regrouper par", ["Jour", "Semaine", "Mois", "Annee"])
@@ -121,29 +120,28 @@ if not df.empty:
     df_filt = df[df["categorie"].isin(f_cat)].copy()
 
     # ==========================================
-    # 5. ANALYSE (CAMEMBERT ET ÉVOLUTION)
+    # 5. ANALYSE (CORRIGÉE)
     # ==========================================
     col_g1, col_g2 = st.columns(2)
     
     with col_g1:
-        # Camembert de repartition des depenses
         df_depenses = df_filt[df_filt['type'] != "Revenu"]
         if not df_depenses.empty:
+            # Correction ici : Utilisation de sequential.Greys
             fig_pie = px.pie(df_depenses, values='montant', names='categorie', 
                              title="Repartition",
-                             color_discrete_sequence=px.colors.qualitative.Grey)
-            fig_pie.update_layout(showlegend=False, height=250, margin=dict(t=30, b=0, l=0, r=0))
+                             color_discrete_sequence=px.colors.sequential.Greys)
+            fig_pie.update_layout(showlegend=False, height=220, margin=dict(t=30, b=0, l=0, r=0))
             st.plotly_chart(fig_pie, use_container_width=True)
         else:
             st.write("Pas de depenses.")
 
     with col_g2:
-        # Evolution temporelle
         freq_map = {"Jour": "D", "Semaine": "W", "Mois": "ME", "Annee": "YE"}
         df_trend = df_filt.set_index("date").resample(freq_map[f_vue])["montant"].sum().reset_index()
         fig_line = px.line(df_trend, x="date", y="montant", title="Evolution",
                            color_discrete_sequence=['#1A1A1A'])
-        fig_line.update_layout(height=250, margin=dict(t=30, b=0, l=0, r=0), xaxis_title="", yaxis_title="")
+        fig_line.update_layout(height=220, margin=dict(t=30, b=0, l=0, r=0), xaxis_title="", yaxis_title="")
         st.plotly_chart(fig_line, use_container_width=True)
 
 st.divider()
@@ -187,8 +185,7 @@ if not df.empty:
             </div>
             <div style="font-weight: 500; margin-top: 5px;">{row['description']}</div>
             <div style="margin-top: 8px;">
-                <span class="user-tag">Utilisateur: {row['auteur']}</span>
-                <span style="font-size: 0.75em; color: #999; margin-left: 10px;">{row['paiement']}</span>
+                <span class="user-tag">Auteur: {row['auteur']}</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -200,5 +197,3 @@ if not df.empty:
             conn.commit()
             conn.close()
             st.rerun()
-else:
-    st.info("Aucune donnee enregistree.")

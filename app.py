@@ -406,8 +406,8 @@ def page_dashboard():
         <p>Budget partagé du foyer</p>
     </div>""", unsafe_allow_html=True)
 
-    tab_home, tab_add, tab_history, tab_account = st.tabs(
-        ["📊 Dashboard", "➕ Ajouter", "📋 Historique", "👤 Compte"])
+    tab_home, tab_add, tab_history, tab_import, tab_account = st.tabs(
+        ["📊 Dashboard", "➕ Ajouter", "📋 Historique", "📥 Importer", "👤 Compte"])
 
     # Charge TOUTES les transactions (tous utilisateurs du foyer)
     df_all, _ = read_budget_cached()
@@ -693,6 +693,156 @@ def page_dashboard():
                         if ok: st.rerun()
                         else:  st.error(f"Erreur : {err}")
                     st.markdown('</div>', unsafe_allow_html=True)
+
+    # ══ IMPORTER CSV ═════════════════════════════════
+    with tab_import:
+        st.markdown("### 📥 Importer un fichier CSV")
+        st.markdown("""
+        <div class="card">
+            <div style="font-size:12px;color:#888;line-height:1.8">
+                <b style="color:#1A1A1A">Colonnes reconnues :</b><br>
+                <code>date</code> · <code>description</code> · <code>categorie</code>
+                · <code>type</code> · <code>montant</code><br><br>
+                <b style="color:#1A1A1A">Formats acceptés :</b><br>
+                • Date : <code>DD/MM/YYYY</code> ou <code>YYYY-MM-DD</code><br>
+                • Type : <code>Variable</code>, <code>Fixe</code> ou <code>Revenu</code><br>
+                • Montant : nombre positif (ex: <code>250.00</code> ou <code>250,00</code>)<br>
+                • Séparateur : virgule <code>,</code> ou point-virgule <code>;</code>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        uploaded = st.file_uploader("Choisir un fichier CSV", type=["csv"])
+
+        if uploaded:
+            try:
+                # Détecte le séparateur automatiquement
+                raw = uploaded.read().decode("utf-8-sig")
+                sep = ";" if raw.count(";") > raw.count(",") else ","
+                df_imp = pd.read_csv(StringIO(raw), sep=sep)
+
+                # Normalise les noms de colonnes
+                df_imp.columns = [c.strip().lower() for c in df_imp.columns]
+
+                # Colonnes obligatoires
+                required = {"date", "description", "montant"}
+                missing  = required - set(df_imp.columns)
+                if missing:
+                    st.error(f"Colonnes manquantes : {', '.join(missing)}")
+                else:
+                    # Nettoyage
+                    df_imp["montant"] = (
+                        df_imp["montant"].astype(str)
+                        .str.replace(",", ".", regex=False)
+                        .str.replace("[^0-9.]", "", regex=True)
+                    )
+                    df_imp["montant"] = pd.to_numeric(df_imp["montant"], errors="coerce").fillna(0)
+
+                    # Normalise les dates
+                    df_imp["date"] = pd.to_datetime(
+                        df_imp["date"], dayfirst=True, errors="coerce")
+                    df_imp = df_imp.dropna(subset=["date"])
+                    df_imp["date"] = df_imp["date"].dt.strftime("%Y-%m-%d")
+
+                    # Valeurs par défaut si colonnes absentes
+                    if "categorie" not in df_imp.columns: df_imp["categorie"] = "📦 Autre"
+                    if "type"      not in df_imp.columns: df_imp["type"]      = "Variable"
+
+                    # Normalise le type
+                    type_map = {
+                        "variable": "Variable", "fixe": "Fixe", "revenu": "Revenu",
+                        "income": "Revenu", "fixed": "Fixe"
+                    }
+                    df_imp["type"] = df_imp["type"].astype(str).str.strip().str.lower().map(
+                        type_map).fillna("Variable")
+
+                    df_imp["description"] = df_imp["description"].astype(str).str.strip()
+
+                    # Aperçu
+                    st.markdown(f'<div class="sec-label">{len(df_imp)} ligne(s) détectée(s)</div>',
+                                unsafe_allow_html=True)
+
+                    # Tableau aperçu
+                    preview = df_imp[["date","description","categorie","type","montant"]].head(10).copy()
+                    preview.columns = ["Date","Description","Catégorie","Type","Montant (€)"]
+                    st.dataframe(preview, use_container_width=True, hide_index=True)
+
+                    if len(df_imp) > 10:
+                        st.caption(f"… et {len(df_imp)-10} ligne(s) supplémentaire(s)")
+
+                    # Doublons
+                    full_df, sha = read_budget_cached()
+                    existing_descs = set()
+                    if not full_df.empty:
+                        existing_descs = set(
+                            full_df["description"].astype(str) + "|" +
+                            full_df["date"].astype(str).str[:10])
+                    new_descs = df_imp["description"].astype(str) + "|" + df_imp["date"].astype(str)
+                    doublons  = new_descs.isin(existing_descs).sum()
+                    if doublons:
+                        st.warning(f"⚠️ {doublons} ligne(s) semblent déjà exister (même description + date).")
+
+                    col_imp, col_skip = st.columns(2)
+                    with col_imp:
+                        if st.button("✅ Importer tout", use_container_width=True):
+                            _, fresh_sha = gh_read(BUDGET_FILE)
+                            if fresh_sha: sha = fresh_sha
+                            new_rows = pd.DataFrame([{
+                                "id":          secrets.token_hex(8),
+                                "user_email":  email,
+                                "date":        row["date"],
+                                "description": row["description"],
+                                "categorie":   row["categorie"],
+                                "type":        row["type"],
+                                "montant":     row["montant"],
+                                "auteur":      email.split("@")[0],
+                            } for _, row in df_imp.iterrows()])
+                            ok, err = write_budget(
+                                pd.concat([full_df, new_rows], ignore_index=True), sha)
+                            if ok:
+                                st.success(f"✅ {len(df_imp)} transaction(s) importée(s) !")
+                                st.rerun()
+                            else:
+                                st.error(f"Erreur : {err}")
+                    with col_skip:
+                        if st.button("⏭ Ignorer les doublons", use_container_width=True):
+                            _, fresh_sha = gh_read(BUDGET_FILE)
+                            if fresh_sha: sha = fresh_sha
+                            df_new_only = df_imp[~new_descs.isin(existing_descs)]
+                            if df_new_only.empty:
+                                st.info("Aucune nouvelle transaction à importer.")
+                            else:
+                                new_rows = pd.DataFrame([{
+                                    "id":          secrets.token_hex(8),
+                                    "user_email":  email,
+                                    "date":        row["date"],
+                                    "description": row["description"],
+                                    "categorie":   row["categorie"],
+                                    "type":        row["type"],
+                                    "montant":     row["montant"],
+                                    "auteur":      email.split("@")[0],
+                                } for _, row in df_new_only.iterrows()])
+                                ok, err = write_budget(
+                                    pd.concat([full_df, new_rows], ignore_index=True), sha)
+                                if ok:
+                                    st.success(f"✅ {len(df_new_only)} transaction(s) importée(s) (doublons ignorés).")
+                                    st.rerun()
+                                else:
+                                    st.error(f"Erreur : {err}")
+
+            except Exception as e:
+                st.error(f"Erreur de lecture du fichier : {e}")
+
+        # Télécharger un modèle CSV
+        st.markdown('<div class="sec-label">Modèle à télécharger</div>', unsafe_allow_html=True)
+        template = "date,description,categorie,type,montant\n16/03/2026,Loyer,🏠 Logement,Fixe,1200\n16/03/2026,Salaire,💰 Salaire,Revenu,2500\n16/03/2026,Courses,🛒 Alimentation,Variable,120.50"
+        st.download_button(
+            label="📄 Télécharger le modèle CSV",
+            data=template,
+            file_name="modele_budget.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
     # ══ COMPTE ═══════════════════════════════════════
     with tab_account:

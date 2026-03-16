@@ -211,6 +211,78 @@ def get_cat_sous(cat):
     return cat.split(" › ")[1] if " › " in cat else None
 
 
+# Table de matching : mots-clés (minuscules, sans emoji) → label officiel
+CAT_ALIASES = {
+    "logement":      "🏠 Logement",
+    "loyer":         "🏠 Logement",
+    "maison":        "🏠 Logement",
+    "alimentation":  "🛒 Alimentation",
+    "courses":       "🛒 Alimentation",
+    "nourriture":    "🛒 Alimentation",
+    "food":          "🛒 Alimentation",
+    "grocery":       "🛒 Alimentation",
+    "groceries":     "🛒 Alimentation",
+    "transport":     "🚗 Transport",
+    "voiture":       "🚗 Transport",
+    "carburant":     "🚗 Transport",
+    "essence":       "🚗 Transport",
+    "loisirs":       "🎬 Loisirs",
+    "loisir":        "🎬 Loisirs",
+    "divertissement":"🎬 Loisirs",
+    "sport":         "🎬 Loisirs",
+    "sante":         "🏥 Santé",
+    "santé":         "🏥 Santé",
+    "medecin":       "🏥 Santé",
+    "médecin":       "🏥 Santé",
+    "pharmacie":     "🏥 Santé",
+    "health":        "🏥 Santé",
+    "salaire":       "💰 Salaire",
+    "revenu":        "💰 Salaire",
+    "revenue":       "💰 Salaire",
+    "income":        "💰 Salaire",
+    "epargne":       "💵 Epargne",
+    "épargne":       "💵 Epargne",
+    "savings":       "💵 Epargne",
+    "saving":        "💵 Epargne",
+    "autre":         "📦 Autre",
+    "other":         "📦 Autre",
+    "divers":        "📦 Autre",
+}
+
+def normalize_categorie(raw: str) -> str:
+    """
+    Fait correspondre un label importé à une catégorie officielle.
+    1. Correspondance exacte
+    2. Correspondance exacte sans emoji
+    3. Alias CAT_ALIASES
+    4. Correspondance partielle
+    5. Fallback → "\U0001f4e6 Autre"
+    """
+    if not raw or not isinstance(raw, str):
+        return "📦 Autre"
+    raw_stripped = raw.strip()
+    all_cats = get_all_categories()
+    # 1. Exact
+    if raw_stripped in all_cats:
+        return raw_stripped
+    # 2. Sans emoji
+    for official in all_cats:
+        parts = official.split(" ", 1)
+        label_no_emoji = parts[-1].strip() if len(parts) > 1 else official
+        if raw_stripped.lower() == label_no_emoji.lower():
+            return official
+    # 3. Alias
+    key = raw_stripped.lower().strip()
+    if key in CAT_ALIASES and CAT_ALIASES[key] in all_cats:
+        return CAT_ALIASES[key]
+    # 4. Partiel
+    for official in all_cats:
+        official_clean = official.encode("ascii", "ignore").decode().strip().lower()
+        if key in official.lower() or official_clean in key:
+            return official
+    return "📦 Autre"
+
+
 # ─────────────────────────────────────────────────────
 # 5. DONNÉES
 # ─────────────────────────────────────────────────────
@@ -887,6 +959,7 @@ def page_dashboard():
                     df_imp["date"] = df_imp["date"].dt.strftime("%Y-%m-%d")
 
                     if "categorie" not in df_imp.columns: df_imp["categorie"] = "📦 Autre"
+                    else: df_imp["categorie"] = df_imp["categorie"].astype(str).apply(normalize_categorie)
                     if "type"      not in df_imp.columns: df_imp["type"]      = "Variable"
 
                     type_map = {

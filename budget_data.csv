@@ -1,8 +1,2 @@
-Date,Description,Catégorie,Type,Montant
-2026-03-16,Test 1,Autre,Charge Fixe,0.0
-2026-03-16,Test 2,Autre,Charge Fixe,20.0
-2026-03-16,Test 2,Autre,Charge Fixe,20.0
-2026-03-16,Test 2,Autre,Charge Fixe,20.0
-2026-03-16,Test 2,Autre,Charge Fixe,20.0
-2026-03-16,Test 2,Autre,Charge Fixe,20.0
-2026-03-16,Test 2,Autre,Revenu,2000.0
+id,user_email,date,description,categorie,type,montant,auteur
+27071e4eefd8dcda,nastinahaingo@hotmail.fr,2026-03-16,Courses Janvier,🛒 Alimentation,Variable,202.0,nastinahaingo

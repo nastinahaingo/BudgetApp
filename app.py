@@ -345,7 +345,8 @@ def resolve_cat(cat, sous_cat, nouvelle_cat):
 # 8. SESSION
 # ─────────────────────────────────────────────────────
 for k, v in {"logged_in": False, "user_email": "", "auth_mode": "login",
-             "editing_id": None}.items():
+             "editing_id": None, "add_success": False, "edit_success": False,
+             "add_desc_val": "", "add_mt_val": 0.01}.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
@@ -547,8 +548,9 @@ def page_dashboard():
                             full_df.loc[full_df["id"].astype(str) == editing_id, "date"]        = dt.strftime("%Y-%m-%d")
                             ok, err = write_budget(full_df, sha)
                             if ok:
-                                st.success("✅ Transaction modifiée !")
-                                st.session_state.editing_id = None
+                                # Réinitialise + redirige vers historique avec message
+                                st.session_state.editing_id   = None
+                                st.session_state.edit_success = True
                                 st.rerun()
                             else:
                                 st.error(f"Erreur : {err}")
@@ -561,9 +563,16 @@ def page_dashboard():
             # ── MODE AJOUT — sans st.form pour permettre les widgets dynamiques ──
             st.markdown("### Nouvelle opération")
 
-            desc = st.text_input("Description", placeholder="Ex : Courses Leclerc", key="add_desc")
+            # Message de confirmation affiché après un ajout réussi
+            if st.session_state.get("add_success"):
+                st.success("✅ Transaction enregistrée avec succès !")
+                st.session_state.add_success = False
+
+            desc = st.text_input("Description", placeholder="Ex : Courses Leclerc",
+                                 key="add_desc", value=st.session_state.get("add_desc_val",""))
             mt   = st.number_input("Montant (€)", min_value=0.01, step=0.01,
-                                   format="%.2f", key="add_mt")
+                                   format="%.2f", key="add_mt",
+                                   value=st.session_state.get("add_mt_val", 0.01))
             cat, sous_cat, nouvelle_cat = cat_selector("add")
             tp   = st.selectbox("Type", TYPES, key="add_tp")
             dt   = st.date_input("Date", value=date.today(), key="add_dt")
@@ -588,13 +597,25 @@ def page_dashboard():
                     }])
                     ok, err = write_budget(pd.concat([full_df, new_row], ignore_index=True), sha)
                     if ok:
-                        st.success("✅ Enregistré !")
+                        # Réinitialise les champs via session_state
+                        st.session_state.add_success  = True
+                        st.session_state.add_desc_val = ""
+                        st.session_state.add_mt_val   = 0.01
+                        for k in list(st.session_state.keys()):
+                            if k.startswith("add_") and k not in (
+                                    "add_success","add_desc_val","add_mt_val"):
+                                del st.session_state[k]
                         st.rerun()
                     else:
                         st.error(f"Erreur : {err}")
 
     # ══ HISTORIQUE ═══════════════════════════════════
     with tab_history:
+        # Message succès après modification
+        if st.session_state.get("edit_success"):
+            st.success("✅ Transaction modifiée avec succès !")
+            st.session_state.edit_success = False
+
         if df.empty:
             st.info("Aucune transaction enregistrée.")
         else:

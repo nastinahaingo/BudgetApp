@@ -118,7 +118,6 @@ DEFAULT_CATEGORIES = {
     "💰 Salaire":      ("#F0FFF4", "#2D6A0F"),
     "💵 Epargne":      ("#F0FFF4", "#2D6A0F"),
     "📦 Autre":        ("#F8F8F8", "#888"),
-    "🍔 Restauration":        ("#F8F8F8", "#888"),
 }
 
 DEFAULT_TRANSPORT_SOUS_CAT = [
@@ -218,8 +217,6 @@ CAT_ALIASES = {
     "loyer":         "🏠 Logement",
     "maison":        "🏠 Logement",
     "alimentation":  "🛒 Alimentation",
-    "restauration":  "🍔 Restauration", 
-    "restaurant":    "🍔 Restauration", 
     "courses":       "🛒 Alimentation",
     "nourriture":    "🛒 Alimentation",
     "food":          "🛒 Alimentation",
@@ -470,32 +467,8 @@ def page_dashboard():
         if df.empty:
             st.info("Aucune transaction. Commencez par en ajouter une !")
         else:
-            df_m = df[(df["date"].dt.month == now.month) &
-                      (df["date"].dt.year  == now.year)]
-            rev  = df_m[df_m["type"] == "Revenu"]["montant"].sum()
-            dep  = df_m[df_m["type"] != "Revenu"]["montant"].sum()
-            sold = rev - dep
-            sc   = "green" if sold >= 0 else "red"
-            sg   = "+" if sold >= 0 else "−"
-
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown(f'<div class="metric-box"><span class="metric-label">Revenus</span>'
-                            f'<span class="metric-val green">+{rev:,.0f} €</span></div>',
-                            unsafe_allow_html=True)
-            with c2:
-                st.markdown(f'<div class="metric-box"><span class="metric-label">Dépenses</span>'
-                            f'<span class="metric-val red">−{dep:,.0f} €</span></div>',
-                            unsafe_allow_html=True)
-            with c3:
-                st.markdown(f'<div class="metric-box"><span class="metric-label">Solde</span>'
-                            f'<span class="metric-val {sc}">{sg}{abs(sold):,.0f} €</span></div>',
-                            unsafe_allow_html=True)
-
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # ── Filtres globaux (camembert + évolution) ───────────────
-            with st.expander("🔍 Filtres graphiques", expanded=True):
+            # ── Filtres globaux ───────────────────────────────────
+            with st.expander("🔍 Filtres", expanded=True):
                 fa1, fa2 = st.columns(2)
                 with fa1:
                     date_debut = st.date_input("Du", value=date(now.year, 1, 1), key="g_date_debut")
@@ -535,6 +508,30 @@ def page_dashboard():
                 df_graph = df_graph[df_graph["categorie"].apply(get_cat_base) == sel_g_cat]
             if sel_g_auteur != "Tous":
                 df_graph = df_graph[df_graph["auteur"] == sel_g_auteur]
+
+            # ── Métriques basées sur les filtres ────────────────────────────
+            rev  = df_graph[df_graph["type"] == "Revenu"]["montant"].sum()
+            dep  = df_graph[df_graph["type"] != "Revenu"]["montant"].sum()
+            sold = rev - dep
+            sc   = "green" if sold >= 0 else "red"
+            sg   = "+" if sold >= 0 else "−"
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown(f'<div class="metric-box"><span class="metric-label">Revenus</span>'
+                            f'<span class="metric-val green">+{rev:,.0f} €</span></div>',
+                            unsafe_allow_html=True)
+            with c2:
+                st.markdown(f'<div class="metric-box"><span class="metric-label">Dépenses</span>'
+                            f'<span class="metric-val red">−{dep:,.0f} €</span></div>',
+                            unsafe_allow_html=True)
+            with c3:
+                st.markdown(f'<div class="metric-box"><span class="metric-label">Solde</span>'
+                            f'<span class="metric-val {sc}">{sg}{abs(sold):,.0f} €</span></div>',
+                            unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
 
             # ── Camembert ─────────────────────────────────────────────
             df_pie = df_graph[df_graph["type"] != "Revenu"].copy()

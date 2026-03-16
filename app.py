@@ -1,150 +1,164 @@
 import streamlit as st
 import pandas as pd
-import os
-import plotly.express as px
-from datetime import datetime
+import sqlite3
 import hashlib
+from datetime import datetime
+import plotly.express as px
 
-# --- 1. CONFIGURATION & SÉCURITÉ ---
-st.set_page_config(page_title="Mon Budget Privé", layout="centered")
+# ==========================================
+# 1. INITIALISATION DE LA BASE DE DONNÉES (SQLITE)
+# ==========================================
+def init_db():
+    conn = sqlite3.connect('onyx_data.db')
+    c = conn.cursor()
+    # Table des utilisateurs
+    c.execute('''CREATE TABLE IF NOT EXISTS users 
+                 (username TEXT PRIMARY KEY, password TEXT)''')
+    # Table des transactions
+    c.execute('''CREATE TABLE IF NOT EXISTS transactions 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  date TEXT, description TEXT, categorie TEXT, 
+                  type TEXT, montant REAL, paiement TEXT, auteur TEXT)''')
+    conn.commit()
+    conn.close()
 
-# Fonction pour hacher le mot de passe (sécurité)
-def make_hashes(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
-
-def check_hashes(password, hashed_text):
-    if make_hashes(password) == hashed_text:
+def add_user(username, password):
+    conn = sqlite3.connect('onyx_data.db')
+    c = conn.cursor()
+    hashed_pw = hashlib.sha256(str.encode(password)).hexdigest()
+    try:
+        c.execute('INSERT INTO users(username, password) VALUES (?,?)', (username, hashed_pw))
+        conn.commit()
         return True
-    return False
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
 
-# --- 2. SYSTÈME DE LOGIN ---
-# NOTE : Dans une vraie app pro, on utiliserait une DB pour les users.
-# Ici, pour la simplicité, nous définissons les accès valides :
-USER_CREDENTIALS = {
-    "Papa": make_hashes("Secret123"), 
-    "Maman": make_hashes("Maison2026")
-}
+def login_user(username, password):
+    conn = sqlite3.connect('onyx_data.db')
+    c = conn.cursor()
+    hashed_pw = hashlib.sha256(str.encode(password)).hexdigest()
+    c.execute('SELECT * FROM users WHERE username = ? AND password = ?', (username, hashed_pw))
+    data = c.fetchone()
+    conn.close()
+    return data
 
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user = ""
+init_db()
 
-def login_screen():
-    st.markdown("<h1 style='text-align: center;'>🔐 Connexion</h1>", unsafe_allow_html=True)
-    with st.container():
-        user = st.text_input("Utilisateur")
-        password = st.text_input("Mot de passe", type='password')
-        if st.button("Se connecter"):
-            if user in USER_CREDENTIALS and check_hashes(password, USER_CREDENTIALS[user]):
-                st.session_state.logged_in = True
-                st.session_state.user = user
-                st.rerun()
-            else:
-                st.error("Utilisateur ou mot de passe incorrect")
+# ==========================================
+# 2. DESIGN & STYLE (MOBILE LIGHT)
+# ==========================================
+st.set_page_config(page_title="Onyx Budget", layout="centered")
 
-if not st.session_state.logged_in:
-    login_screen()
-    st.stop() # Arrête l'exécution ici si pas connecté
-
-# --- 3. DESIGN (FOND BLANC) ---
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF; color: #1A1A1A; }
-    h1, h2, h3 { color: #1A1A1A !important; font-family: 'Helvetica Neue', sans-serif; }
     .card { 
         background-color: #F9F9F9; padding: 15px; border-radius: 12px; 
-        margin-bottom: 12px; border: 1px solid #EEEEEE;
-        box-shadow: 0px 2px 4px rgba(0,0,0,0.05);
+        border: 1px solid #EEEEEE; margin-bottom: 10px;
     }
-    .user-tag { background-color: #E8F0FE; color: #1967D2; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; }
+    .user-tag { background-color: #E8F0FE; color: #1967D2; padding: 3px 10px; border-radius: 15px; font-size: 0.75em; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. GESTION DES DONNÉES ---
-DB_FILE = "budget_expert.csv"
-COLONNES = ["Date", "Description", "Catégorie", "Type", "Montant", "Mode de Paiement", "Importance", "Auteur"]
+# ==========================================
+# 3. ÉCRAN D'ACCÈS (LOGIN / CRÉATION)
+# ==========================================
+if 'auth' not in st.session_state:
+    st.session_state.auth = False
+    st.session_state.user = ""
 
-def load_data():
-    if os.path.exists(DB_FILE):
-        try:
-            df = pd.read_csv(DB_FILE)
-            df["Date"] = pd.to_datetime(df["Date"])
-            for col in COLONNES:
-                if col not in df.columns:
-                    df[col] = "Inconnu"
-            return df[COLONNES]
-        except:
-            return pd.DataFrame(columns=COLONNES)
-    return pd.DataFrame(columns=COLONNES)
+if not st.session_state.auth:
+    tab1, tab2 = st.tabs(["Connexion", "Créer un compte"])
+    
+    with tab1:
+        u1 = st.text_input("Nom d'utilisateur", key="l1")
+        p1 = st.text_input("Mot de passe", type="password", key="l2")
+        if st.button("Se connecter"):
+            if login_user(u1, p1):
+                st.session_state.auth = True
+                st.session_state.user = u1
+                st.rerun()
+            else:
+                st.error("Échec de la connexion")
+                
+    with tab2:
+        u2 = st.text_input("Choisir un nom", key="r1")
+        p2 = st.text_input("Choisir un mot de passe", type="password", key="r2")
+        if st.button("Créer mon compte"):
+            if u2 and p2:
+                if add_user(u2, p2):
+                    st.success("Compte créé ! Vous pouvez vous connecter.")
+                else:
+                    st.error("Ce nom d'utilisateur existe déjà.")
+    st.stop()
 
-if 'df' not in st.session_state:
-    st.session_state.df = load_data()
-
-# --- 5. INTERFACE ET GRAPHIQUES ---
-st.sidebar.write(f"👤 Connecté : **{st.session_state.user}**")
+# ==========================================
+# 4. CŒUR DE L'APPLICATION (APRES LOGIN)
+# ==========================================
+st.sidebar.write(f"👤 {st.session_state.user}")
 if st.sidebar.button("Déconnexion"):
-    st.session_state.logged_in = False
+    st.session_state.auth = False
     st.rerun()
 
 st.title("📱 Onyx Budget")
 
-# Graphique d'évolution rapide
-if not st.session_state.df.empty:
-    df_trend = st.session_state.df.set_index("Date").resample("ME")["Montant"].sum().reset_index()
-    fig = px.line(df_trend, x="Date", y="Montant", color_discrete_sequence=['#1A1A1A'])
-    fig.update_layout(height=180, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-    st.plotly_chart(fig, use_container_width=True)
+# --- FONCTION POUR LES DONNÉES ---
+def get_data():
+    conn = sqlite3.connect('onyx_data.db')
+    df = pd.read_sql_query("SELECT * FROM transactions", conn)
+    conn.close()
+    if not df.empty:
+        df["date"] = pd.to_datetime(df["date"])
+    return df
 
-st.divider()
+df = get_data()
 
-# --- 6. SAISIE ---
-with st.expander("➕ Nouvelle Transaction", expanded=False):
-    with st.form("secure_form", clear_on_submit=True):
+# --- FORMULAIRE D'AJOUT ---
+with st.expander("➕ Ajouter une transaction", expanded=False):
+    with st.form("add_form", clear_on_submit=True):
         desc = st.text_input("Description")
         col1, col2 = st.columns(2)
         with col1:
             mt = st.number_input("Montant (€)", min_value=0.0)
-            cat = st.selectbox("Catégorie", ["Transport", "Alimentation", "Loisirs", "Habitation", "Santé", "Revenu", "Autre"])
-            auteur = st.selectbox("Qui fait la dépense ?", ["Papa", "Maman", "Commun"])
+            cat = st.selectbox("Catégorie", ["Transport", "Alimentation", "Loisirs", "Habitation", "Santé", "Revenu"])
         with col2:
-            date_s = st.date_input("Date", datetime.now())
-            type_m = st.selectbox("Type", ["Dépense Variable", "Dépense Fixe", "Revenu"])
-            mp = st.selectbox("Paiement", ["Carte Bancaire", "Virement", "Espèces"])
+            dt = st.date_input("Date", datetime.now())
+            tp = st.selectbox("Type", ["Variable", "Fixe", "Revenu"])
+        
+        paiement = st.selectbox("Paiement", ["Carte Bancaire", "Espèces", "Virement"])
         
         if st.form_submit_button("Enregistrer"):
-            new_row = pd.DataFrame([{
-                "Date": pd.to_datetime(date_s), "Description": desc, "Catégorie": cat,
-                "Type": type_m, "Montant": mt, "Mode de Paiement": mp, 
-                "Importance": "Utile", "Auteur": auteur
-            }])
-            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
-            st.session_state.df.to_csv(DB_FILE, index=False)
+            conn = sqlite3.connect('onyx_data.db')
+            c = conn.cursor()
+            c.execute('''INSERT INTO transactions (date, description, categorie, type, montant, paiement, auteur) 
+                         VALUES (?,?,?,?,?,?,?)''', 
+                      (dt.strftime('%Y-%m-%d'), desc, cat, tp, mt, paiement, st.session_state.user))
+            conn.commit()
+            conn.close()
             st.success("Enregistré !")
             st.rerun()
 
-# --- 7. HISTORIQUE ---
+# --- HISTORIQUE ---
 st.subheader("📜 Historique")
-
-if not st.session_state.df.empty:
-    df_disp = st.session_state.df.sort_values(by="Date", ascending=False)
-    for index, row in df_disp.iterrows():
+if not df.empty:
+    for index, row in df.sort_values("date", ascending=False).iterrows():
         st.markdown(f"""
         <div class="card">
             <div style="display: flex; justify-content: space-between;">
-                <span style="font-size: 0.8em; color: #666;">{row['Date'].strftime('%d/%m/%Y')} | {row['Catégorie']}</span>
-                <b style="color: {'#2ECC71' if row['Type'] == 'Revenu' else '#1A1A1A'};">
-                    {row['Montant']:.2f} €
-                </b>
+                <span style="font-size: 0.8em; color: #666;">{row['date'].strftime('%d/%m/%Y')} | {row['categorie']}</span>
+                <b style="color: {'#2ECC71' if row['type'] == 'Revenu' else '#1A1A1A'};">{row['montant']:.2f} €</b>
             </div>
-            <div style="font-weight: 500; margin-top: 5px;">{row['Description']}</div>
-            <div style="margin-top: 8px;">
-                <span class="user-tag">👤 {row['Auteur']}</span>
-                <span style="font-size: 0.75em; color: #999; margin-left: 10px;">{row['Mode de Paiement']}</span>
-            </div>
+            <div style="font-weight: 500;">{row['description']}</div>
+            <div style="margin-top: 5px;"><span class="user-tag">👤 {row['auteur']}</span></div>
         </div>
         """, unsafe_allow_html=True)
         
-        if st.button("Retirer", key=f"del_{index}"):
-            st.session_state.df = st.session_state.df.drop(index).reset_index(drop=True)
-            st.session_state.df.to_csv(DB_FILE, index=False)
+        if st.button("Supprimer", key=f"del_{row['id']}"):
+            conn = sqlite3.connect('onyx_data.db')
+            c = conn.cursor()
+            c.execute("DELETE FROM transactions WHERE id = ?", (int(row['id']),))
+            conn.commit()
+            conn.close()
             st.rerun()

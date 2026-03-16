@@ -202,7 +202,11 @@ def get_cat_style(cat):
 
 def get_cat_icon(cat):
     part = cat.split(" › ")[1] if " › " in cat else cat
-    return part.split(" ")[0] if part else "📦"
+    first = part.split(" ")[0] if part else ""
+    # Vérifie si le premier mot est un emoji (point de code > 127)
+    if first and ord(first[0]) > 127:
+        return first
+    return "🏷️"
 
 def get_cat_base(cat):
     return cat.split(" › ")[0] if " › " in cat else cat

@@ -116,8 +116,8 @@ DEFAULT_CATEGORIES = {
     "🎬 Loisirs":      ("#F0FFF4", "#2D6A0F"),
     "🏥 Santé":        ("#FFFBEE", "#A16207"),
     "💰 Salaire":      ("#F0FFF4", "#2D6A0F"),
+    "💵 Epargne":      ("#F0FFF4", "#2D6A0F"),
     "📦 Autre":        ("#F8F8F8", "#888"),
-
 }
 
 DEFAULT_TRANSPORT_SOUS_CAT = [

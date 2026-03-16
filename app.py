@@ -633,6 +633,22 @@ def page_dashboard():
             st.markdown(f'<div class="sec-label">{len(df_f)} transaction(s)</div>',
                         unsafe_allow_html=True)
 
+            st.markdown("""
+            <style>
+            div[data-testid="stHorizontalBlock"] div[data-testid="column"]:first-child .stButton > button {
+                background: #F5F4F0 !important; color: #1A1A1A !important;
+                border: none !important; border-radius: 0 0 0 16px !important;
+                padding: 9px !important; font-size: 13px !important; font-weight: 600 !important;
+            }
+            div[data-testid="stHorizontalBlock"] div[data-testid="column"]:last-child .stButton > button {
+                background: #FFF0F0 !important; color: #D94040 !important;
+                border: none !important; border-radius: 0 0 16px 0 !important;
+                padding: 9px !important; font-size: 13px !important; font-weight: 600 !important;
+            }
+            div[data-testid="stHorizontalBlock"] { margin-top: -12px !important; gap: 2px !important; }
+            </style>
+            """, unsafe_allow_html=True)
+
             for _, row in df_f.iterrows():
                 is_rev  = row["type"] == "Revenu"
                 bg, _   = get_cat_style(row["categorie"])
@@ -644,8 +660,10 @@ def page_dashboard():
                 badge   = f'<span class="badge {"mine" if is_mine else ""}">{row["auteur"]}</span>'
 
                 st.markdown(f"""
-                <div class="card" style="margin-bottom:.3rem">
-                  <div class="tx" style="padding:.15rem 0">
+                <div style="background:#fff;border-radius:16px 16px 0 0;
+                     padding:1rem 1.1rem .75rem;margin-bottom:0;
+                     box-shadow:0 2px 14px rgba(0,0,0,.07)">
+                  <div class="tx" style="padding:.1rem 0">
                     <div class="tx-icon" style="background:{bg}">{icon}</div>
                     <div class="tx-desc">
                       <strong>{row['description']}</strong>
@@ -653,31 +671,23 @@ def page_dashboard():
                     </div>
                     <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
                   </div>
-                  <div style="display:flex;gap:8px;margin-top:.5rem;border-top:.5px solid #F2F2F2;padding-top:.5rem">
-                    <button onclick="" style="flex:1;background:#F5F4F0;border:none;border-radius:10px;
-                      padding:7px;font-size:13px;font-weight:600;color:#1A1A1A;cursor:pointer"
-                      id="edit_{tx_id}">✏️ Modifier</button>
-                    <button onclick="" style="flex:1;background:#FFF0F0;border:none;border-radius:10px;
-                      padding:7px;font-size:13px;font-weight:600;color:#D94040;cursor:pointer"
-                      id="del_{tx_id}">🗑 Supprimer</button>
-                  </div>
                 </div>""", unsafe_allow_html=True)
 
                 col_e, col_d = st.columns(2)
                 with col_e:
-                    if st.button("✏️ Modifier", key=f"e_{tx_id}",
-                                 use_container_width=True):
+                    if st.button("✏️ Modifier", key=f"e_{tx_id}", use_container_width=True):
                         st.session_state.editing_id = tx_id
                         st.rerun()
                 with col_d:
-                    if st.button("🗑 Supprimer", key=f"d_{tx_id}",
-                                 use_container_width=True):
+                    if st.button("🗑 Supprimer", key=f"d_{tx_id}", use_container_width=True):
                         _, fresh_sha = gh_read(BUDGET_FILE)
                         full_df, _   = read_budget_cached()
                         full_df      = full_df[full_df["id"].astype(str) != tx_id]
                         ok, err      = write_budget(full_df, fresh_sha or _)
                         if ok: st.rerun()
                         else:  st.error(f"Erreur : {err}")
+
+                st.markdown("<div style='margin-bottom:.75rem'></div>", unsafe_allow_html=True)
 
     # ══ COMPTE ═══════════════════════════════════════
     with tab_account:

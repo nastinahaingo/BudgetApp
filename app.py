@@ -508,7 +508,7 @@ def page_dashboard():
         editing_id = st.session_state.editing_id
 
         if editing_id:
-            # ── MODE ÉDITION ──
+            # ── MODE ÉDITION — sans st.form pour permettre les widgets dynamiques ──
             st.markdown("### ✏️ Modifier la transaction")
             row_edit = df[df["id"].astype(str) == editing_id]
             if row_edit.empty:
@@ -516,56 +516,59 @@ def page_dashboard():
                 st.session_state.editing_id = None
                 st.rerun()
             else:
-                r = row_edit.iloc[0]
+                r            = row_edit.iloc[0]
                 default_base = get_cat_base(r["categorie"])
                 default_sous = get_cat_sous(r["categorie"])
 
-                with st.form("fedit", clear_on_submit=False):
-                    desc = st.text_input("Description", value=r["description"])
-                    mt   = st.number_input("Montant (€)", value=float(r["montant"]),
-                                           min_value=0.01, step=0.01, format="%.2f")
-                    cat, sous_cat, nouvelle_cat = cat_selector(
-                        "edit", default_cat=default_base, default_sous=default_sous)
-                    tp_idx = TYPES.index(r["type"]) if r["type"] in TYPES else 0
-                    tp   = st.selectbox("Type", TYPES, index=tp_idx)
-                    dt   = st.date_input("Date", value=r["date"].date()
-                                         if hasattr(r["date"], "date") else date.today())
-                    col1, col2 = st.columns(2)
-                    with col1: save_edit = st.form_submit_button("💾 Enregistrer")
-                    with col2: cancel    = st.form_submit_button("Annuler")
+                desc = st.text_input("Description", value=r["description"], key="ed_desc")
+                mt   = st.number_input("Montant (€)", value=float(r["montant"]),
+                                       min_value=0.01, step=0.01, format="%.2f", key="ed_mt")
+                cat, sous_cat, nouvelle_cat = cat_selector(
+                    "edit", default_cat=default_base, default_sous=default_sous)
+                tp_idx = TYPES.index(r["type"]) if r["type"] in TYPES else 0
+                tp   = st.selectbox("Type", TYPES, index=tp_idx, key="ed_tp")
+                dt   = st.date_input("Date", value=r["date"].date()
+                                     if hasattr(r["date"], "date") else date.today(), key="ed_dt")
 
-                if cancel:
-                    st.session_state.editing_id = None; st.rerun()
-
-                if save_edit:
-                    cat_finale = resolve_cat(cat, sous_cat, nouvelle_cat)
-                    full_df, sha = read_budget_cached()
-                    _, fresh_sha = gh_read(BUDGET_FILE)
-                    if fresh_sha: sha = fresh_sha
-                    full_df.loc[full_df["id"].astype(str) == editing_id, "description"] = desc.strip()
-                    full_df.loc[full_df["id"].astype(str) == editing_id, "montant"]     = mt
-                    full_df.loc[full_df["id"].astype(str) == editing_id, "categorie"]   = cat_finale
-                    full_df.loc[full_df["id"].astype(str) == editing_id, "type"]        = tp
-                    full_df.loc[full_df["id"].astype(str) == editing_id, "date"]        = dt.strftime("%Y-%m-%d")
-                    ok, err = write_budget(full_df, sha)
-                    if ok:
-                        st.success("✅ Transaction modifiée !")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("💾 Enregistrer", use_container_width=True, key="ed_save"):
+                        if not desc.strip():
+                            st.warning("Description vide.")
+                        else:
+                            cat_finale = resolve_cat(cat, sous_cat, nouvelle_cat)
+                            full_df, sha = read_budget_cached()
+                            _, fresh_sha = gh_read(BUDGET_FILE)
+                            if fresh_sha: sha = fresh_sha
+                            full_df.loc[full_df["id"].astype(str) == editing_id, "description"] = desc.strip()
+                            full_df.loc[full_df["id"].astype(str) == editing_id, "montant"]     = mt
+                            full_df.loc[full_df["id"].astype(str) == editing_id, "categorie"]   = cat_finale
+                            full_df.loc[full_df["id"].astype(str) == editing_id, "type"]        = tp
+                            full_df.loc[full_df["id"].astype(str) == editing_id, "date"]        = dt.strftime("%Y-%m-%d")
+                            ok, err = write_budget(full_df, sha)
+                            if ok:
+                                st.success("✅ Transaction modifiée !")
+                                st.session_state.editing_id = None
+                                st.rerun()
+                            else:
+                                st.error(f"Erreur : {err}")
+                with col2:
+                    if st.button("Annuler", use_container_width=True, key="ed_cancel"):
                         st.session_state.editing_id = None
                         st.rerun()
-                    else:
-                        st.error(f"Erreur : {err}")
-        else:
-            # ── MODE AJOUT ──
-            st.markdown("### Nouvelle opération")
-            with st.form("fa", clear_on_submit=True):
-                desc = st.text_input("Description", placeholder="Ex : Courses Leclerc")
-                mt   = st.number_input("Montant (€)", min_value=0.01, step=0.01, format="%.2f")
-                cat, sous_cat, nouvelle_cat = cat_selector("add")
-                tp   = st.selectbox("Type", TYPES)
-                dt   = st.date_input("Date", value=date.today())
-                sub  = st.form_submit_button("Enregistrer ✓")
 
-            if sub:
+        else:
+            # ── MODE AJOUT — sans st.form pour permettre les widgets dynamiques ──
+            st.markdown("### Nouvelle opération")
+
+            desc = st.text_input("Description", placeholder="Ex : Courses Leclerc", key="add_desc")
+            mt   = st.number_input("Montant (€)", min_value=0.01, step=0.01,
+                                   format="%.2f", key="add_mt")
+            cat, sous_cat, nouvelle_cat = cat_selector("add")
+            tp   = st.selectbox("Type", TYPES, key="add_tp")
+            dt   = st.date_input("Date", value=date.today(), key="add_dt")
+
+            if st.button("Enregistrer ✓", use_container_width=True, key="add_sub"):
                 if not desc.strip():
                     st.warning("Veuillez saisir une description.")
                 else:

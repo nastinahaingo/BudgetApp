@@ -1,21 +1,18 @@
 """
 H&L Budget — Application de suivi des dépenses du foyer
-Stack : Streamlit Cloud · CSV stockés sur GitHub · Outlook SMTP
+Stack : Streamlit Cloud · CSV stockés sur GitHub · Pas d'email
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SECRETS À CONFIGURER (Streamlit Cloud > Manage app > Settings > Secrets)
+SECRETS (Streamlit Cloud > Manage app > Settings > Secrets)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-EMAIL_ADDRESS  = "votre_adresse@outlook.com"
-EMAIL_PASSWORD = "xxxx xxxx xxxx xxxx"     ← mot de passe d'application Outlook
-GITHUB_TOKEN   = "ghp_..."                 ← Personal Access Token (scope: repo)
-GITHUB_REPO    = "votre_user/nom_du_repo"
-APP_URL        = "https://votre-app.streamlit.app"
+GITHUB_TOKEN = "ghp_..."
+GITHUB_REPO  = "votre_user/nom_du_repo"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FICHIERS dans le repo GitHub (créés automatiquement au 1er lancement) :
+FICHIERS dans le repo GitHub (créés automatiquement) :
   budget_data.csv  →  transactions
-  users.csv        →  comptes utilisateurs
+  users.csv        →  email, password (en clair)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -23,10 +20,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import hashlib, secrets, smtplib, base64
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime, date, timedelta
+import secrets, base64
+from datetime import datetime, date
 from io import StringIO
 import requests
 
@@ -116,11 +111,11 @@ div[aria-selected="true"] { background:#1A1A1A !important; color:#fff !important
 # ─────────────────────────────────────────────────────
 # 2. CONSTANTES
 # ─────────────────────────────────────────────────────
-BUDGET_FILE = "budget_data.csv"   # ← ton fichier existant dans le repo
+BUDGET_FILE = "budget_data.csv"
 USERS_FILE  = "users.csv"
 
 COLS_BUDGET = ["id","user_email","date","description","categorie","type","montant","auteur"]
-COLS_USERS  = ["email","password_hash","salt","token","token_expiry"]
+COLS_USERS  = ["email","password"]   # mot de passe stocké en clair
 
 CATEGORIES = {
     "🏠 Logement":     ("#F0F0EE", "#1A1A1A"),
@@ -147,18 +142,14 @@ def _gh_headers() -> dict:
 def _gh_base() -> str:
     return f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents"
 
-
 def _gh_read(filename: str) -> tuple[str, str]:
-    """Lit un fichier GitHub. Retourne (contenu_csv, sha)."""
     r = requests.get(f"{_gh_base()}/{filename}", headers=_gh_headers(), timeout=10)
     if r.status_code == 200:
         data = r.json()
         return base64.b64decode(data["content"]).decode("utf-8"), data["sha"]
     return "", ""
 
-
 def _gh_write(filename: str, content: str, sha: str, msg: str) -> bool:
-    """Écrit (crée ou met à jour) un fichier sur GitHub."""
     payload = {
         "message": msg,
         "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
@@ -169,22 +160,18 @@ def _gh_write(filename: str, content: str, sha: str, msg: str) -> bool:
                      headers=_gh_headers(), json=payload, timeout=10)
     return r.status_code in (200, 201)
 
-
 @st.cache_data(ttl=8)
 def _load(filename: str, columns: list) -> tuple[pd.DataFrame, str]:
-    """Charge un CSV depuis GitHub, le crée s'il est absent."""
     content, sha = _gh_read(filename)
     if content.strip():
         df = pd.read_csv(StringIO(content))
-        for col in columns:          # ajoute colonnes manquantes sans casser l'existant
+        for col in columns:
             if col not in df.columns:
                 df[col] = ""
         return df, sha
-    # Fichier absent → on le crée vide sur GitHub
     empty = pd.DataFrame(columns=columns)
     _gh_write(filename, empty.to_csv(index=False), "", f"init {filename}")
     return empty, ""
-
 
 def _save(filename: str, df: pd.DataFrame, sha: str, columns: list, msg: str) -> None:
     _load.clear()
@@ -195,10 +182,8 @@ def _save(filename: str, df: pd.DataFrame, sha: str, columns: list, msg: str) ->
                 lambda x: x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else x)
     _gh_write(filename, df_save.reindex(columns=columns).to_csv(index=False), sha, msg)
 
-
-# Raccourcis publics
-def get_users() -> tuple[pd.DataFrame, str]:
-    return _load(USERS_FILE, COLS_USERS)
+def get_users()  -> tuple[pd.DataFrame, str]: return _load(USERS_FILE,  COLS_USERS)
+def save_users(df, sha): _save(USERS_FILE, df, sha, COLS_USERS, "update users")
 
 def get_budget() -> tuple[pd.DataFrame, str]:
     df, sha = _load(BUDGET_FILE, COLS_BUDGET)
@@ -208,163 +193,52 @@ def get_budget() -> tuple[pd.DataFrame, str]:
         df = df.dropna(subset=["date"])
     return df, sha
 
-def save_users(df, sha):  _save(USERS_FILE,  df, sha, COLS_USERS,  "update users")
 def save_budget(df, sha): _save(BUDGET_FILE, df, sha, COLS_BUDGET, "update budget_data")
 
 
 # ─────────────────────────────────────────────────────
-# 4. SÉCURITÉ — MOT DE PASSE
-# ─────────────────────────────────────────────────────
-def hash_password(password: str, salt: str = None) -> tuple[str, str]:
-    if salt is None:
-        salt = secrets.token_hex(16)
-    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 260_000)
-    return key.hex(), salt
-
-def verify_password(password: str, stored: str, salt: str) -> bool:
-    computed, _ = hash_password(password, salt)
-    return secrets.compare_digest(computed, stored)
-
-
-# ─────────────────────────────────────────────────────
-# 5. EMAIL — OUTLOOK SMTP
-# ─────────────────────────────────────────────────────
-def _send(to: str, subject: str, html: str) -> bool:
-    try:
-        sender = st.secrets["EMAIL_ADDRESS"]
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = f"H&L Budget <{sender}>"
-        msg["To"]      = to
-        msg.attach(MIMEText(html, "html", "utf-8"))
-        with smtplib.SMTP("smtp-mail.outlook.com", 587, timeout=15) as s:
-            s.starttls()
-            s.login(sender, st.secrets["EMAIL_PASSWORD"])
-            s.sendmail(sender, to, msg.as_string())
-        return True
-    except Exception as e:
-        st.warning(f"Email non envoyé : {e}")
-        return False
-
-def email_bienvenue(to: str):
-    _send(to, "Bienvenue sur H&L Budget 🎉", f"""
-    <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;
-                background:#fff;border-radius:16px">
-        <h1 style="font-size:28px;font-weight:800;color:#1A1A1A">H&L Budget</h1>
-        <p style="color:#666;font-size:15px;line-height:1.7">
-            Votre compte a été créé avec succès.<br>
-            Adresse : <strong>{to}</strong>
-        </p>
-        <p style="color:#bbb;font-size:12px;margin-top:24px">H&L Budget · Application familiale</p>
-    </div>""")
-
-def email_reset(to: str, token: str):
-    url = f"{st.secrets.get('APP_URL','http://localhost:8501')}?reset_token={token}"
-    _send(to, "Réinitialisation de votre mot de passe", f"""
-    <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;
-                background:#fff;border-radius:16px">
-        <h1 style="font-size:28px;font-weight:800;color:#1A1A1A">H&L Budget</h1>
-        <p style="color:#666;font-size:15px;line-height:1.7">
-            Lien valable <strong>30 minutes</strong> :
-        </p>
-        <a href="{url}" style="display:inline-block;margin:20px 0;background:#1A1A1A;
-           color:#fff;padding:14px 28px;border-radius:12px;font-weight:700;
-           text-decoration:none;font-size:15px">
-           Réinitialiser mon mot de passe →
-        </a>
-        <p style="color:#bbb;font-size:12px">
-            Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.
-        </p>
-    </div>""")
-
-
-# ─────────────────────────────────────────────────────
-# 6. LOGIQUE AUTH
+# 4. LOGIQUE AUTH (sans email, MDP en clair)
 # ─────────────────────────────────────────────────────
 def register(email: str, pwd: str, pwd2: str) -> tuple[bool, str]:
     email = email.strip().lower()
-    if "@" not in email:      return False, "Adresse email invalide."
-    if len(pwd) < 8:          return False, "Mot de passe trop court (8 car. min.)."
-    if pwd != pwd2:           return False, "Les mots de passe ne correspondent pas."
+    if "@" not in email:  return False, "Adresse email invalide."
+    if len(pwd) < 6:      return False, "Mot de passe trop court (6 car. min.)."
+    if pwd != pwd2:       return False, "Les mots de passe ne correspondent pas."
     df, sha = get_users()
     if not df.empty and email in df["email"].values:
         return False, "Un compte existe déjà avec cet email."
-    h, s = hash_password(pwd)
-    row  = pd.DataFrame([[email, h, s, "", ""]], columns=COLS_USERS)
+    row = pd.DataFrame([[email, pwd]], columns=COLS_USERS)
     save_users(pd.concat([df, row], ignore_index=True), sha)
-    email_bienvenue(email)
     return True, "Compte créé ! Connectez-vous."
 
 def login(email: str, pwd: str) -> tuple[bool, str]:
     email = email.strip().lower()
     df, _ = get_users()
     if df.empty: return False, "Identifiants incorrects."
-    row = df[df["email"] == email]
+    row = df[(df["email"] == email) & (df["password"] == pwd)]
     if row.empty: return False, "Identifiants incorrects."
-    r = row.iloc[0]
-    if not verify_password(pwd, str(r["password_hash"]), str(r["salt"])):
-        return False, "Identifiants incorrects."
     return True, "OK"
 
-def forgot(email: str) -> str:
-    email = email.strip().lower()
-    df, sha = get_users()
-    if df.empty or email not in df["email"].values:
-        return "Si cette adresse est connue, un lien vous a été envoyé."   # message neutre
-    token  = secrets.token_urlsafe(32)
-    expiry = (datetime.now() + timedelta(minutes=30)).isoformat()
-    df.loc[df["email"] == email, "token"]        = token
-    df.loc[df["email"] == email, "token_expiry"] = expiry
-    save_users(df, sha)
-    email_reset(email, token)
-    return "Lien envoyé ! Vérifiez votre boîte de réception."
-
-def do_reset(token: str, pwd: str, pwd2: str) -> tuple[bool, str]:
-    if pwd != pwd2:  return False, "Les mots de passe ne correspondent pas."
-    if len(pwd) < 8: return False, "Mot de passe trop court (8 car. min.)."
-    df, sha = get_users()
-    if df.empty or "token" not in df.columns:
-        return False, "Lien invalide ou expiré."
-    row = df[df["token"] == token]
-    if row.empty: return False, "Lien invalide ou expiré."
-    try:
-        if datetime.fromisoformat(str(row.iloc[0]["token_expiry"])) < datetime.now():
-            return False, "Ce lien a expiré. Faites une nouvelle demande."
-    except Exception:
-        return False, "Lien invalide."
-    h, s = hash_password(pwd)
-    df.loc[df["token"] == token, ["password_hash","salt","token","token_expiry"]] = h, s, "", ""
-    save_users(df, sha)
-    return True, "Mot de passe mis à jour ! Connectez-vous."
-
 
 # ─────────────────────────────────────────────────────
-# 7. SESSION
+# 5. SESSION
 # ─────────────────────────────────────────────────────
-for k, v in {"logged_in": False, "user_email": "",
-             "auth_mode": "login", "reset_token": ""}.items():
+for k, v in {"logged_in": False, "user_email": "", "auth_mode": "login"}.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# Détection token reset dans l'URL
-rt = st.query_params.get("reset_token", "")
-if rt and not st.session_state.logged_in:
-    st.session_state.auth_mode   = "reset"
-    st.session_state.reset_token = rt
-
 
 # ─────────────────────────────────────────────────────
-# 8. PAGE AUTH
+# 6. PAGE AUTH
 # ─────────────────────────────────────────────────────
 def page_auth():
     st.markdown('<div class="auth-logo"><h1>H&L</h1><p>Votre budget familial</p></div>',
                 unsafe_allow_html=True)
     mode = st.session_state.auth_mode
 
-    # ── Connexion ──
     if mode == "login":
         with st.form("fl"):
-            email = st.text_input("Adresse email", placeholder="vous@outlook.com")
+            email = st.text_input("Adresse email", placeholder="vous@example.com")
             pwd   = st.text_input("Mot de passe", type="password")
             sub   = st.form_submit_button("Se connecter")
         if sub:
@@ -375,58 +249,26 @@ def page_auth():
                 st.rerun()
             else:
                 st.error(msg)
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("Mot de passe oublié ?"):
-                st.session_state.auth_mode = "forgot"; st.rerun()
-        with c2:
-            if st.button("Créer un compte"):
-                st.session_state.auth_mode = "register"; st.rerun()
+        if st.button("Créer un compte"):
+            st.session_state.auth_mode = "register"; st.rerun()
 
-    # ── Inscription ──
     elif mode == "register":
         st.markdown("### Créer un compte")
         with st.form("fr"):
             email = st.text_input("Adresse email")
-            pwd1  = st.text_input("Mot de passe (8 car. min.)", type="password")
+            pwd1  = st.text_input("Mot de passe (6 car. min.)", type="password")
             pwd2  = st.text_input("Confirmer le mot de passe", type="password")
             sub   = st.form_submit_button("Créer mon compte")
         if sub:
             ok, msg = register(email, pwd1, pwd2)
             (st.success if ok else st.error)(msg)
             if ok: st.session_state.auth_mode = "login"
-        if st.button("← Retour"):
+        if st.button("← Retour à la connexion"):
             st.session_state.auth_mode = "login"; st.rerun()
-
-    # ── Mot de passe oublié ──
-    elif mode == "forgot":
-        st.markdown("### Mot de passe oublié")
-        st.info("Un lien valable 30 minutes vous sera envoyé par email.")
-        with st.form("ff"):
-            email = st.text_input("Adresse email")
-            sub   = st.form_submit_button("Envoyer le lien")
-        if sub:
-            st.success(forgot(email))
-        if st.button("← Retour"):
-            st.session_state.auth_mode = "login"; st.rerun()
-
-    # ── Reset MDP (depuis lien email) ──
-    elif mode == "reset":
-        st.markdown("### Nouveau mot de passe")
-        with st.form("frs"):
-            pwd1 = st.text_input("Nouveau mot de passe (8 car. min.)", type="password")
-            pwd2 = st.text_input("Confirmer le mot de passe", type="password")
-            sub  = st.form_submit_button("Enregistrer")
-        if sub:
-            ok, msg = do_reset(st.session_state.reset_token, pwd1, pwd2)
-            (st.success if ok else st.error)(msg)
-            if ok:
-                st.query_params.clear()
-                st.session_state.auth_mode = "login"; st.rerun()
 
 
 # ─────────────────────────────────────────────────────
-# 9. PAGE DASHBOARD
+# 7. PAGE DASHBOARD
 # ─────────────────────────────────────────────────────
 def page_dashboard():
     email     = st.session_state.user_email
@@ -443,7 +285,6 @@ def page_dashboard():
     tab_home, tab_add, tab_history, tab_account = st.tabs(
         ["📊 Dashboard", "➕ Ajouter", "📋 Historique", "👤 Compte"])
 
-    # Charge TOUTES les transactions puis filtre sur l'utilisateur connecté
     df_all, sha_budget = get_budget()
     df = pd.DataFrame()
     if not df_all.empty and "user_email" in df_all.columns:
@@ -462,7 +303,6 @@ def page_dashboard():
             sc   = "green" if sold >= 0 else "red"
             sg   = "+" if sold >= 0 else "−"
 
-            # Métriques
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.markdown(f'<div class="metric-box"><span class="metric-label">Revenus</span>'
@@ -479,7 +319,7 @@ def page_dashboard():
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # Camembert dépenses du mois
+            # Camembert
             df_dep = df_m[df_m["type"] != "Revenu"]
             if not df_dep.empty:
                 st.markdown('<div class="sec-label">Répartition des dépenses</div>',
@@ -496,7 +336,7 @@ def page_dashboard():
                                       margin=dict(t=10,b=10,l=10,r=10))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
-            # Courbe évolution mensuelle (6 derniers mois)
+            # Courbe évolution
             st.markdown('<div class="sec-label">Évolution des dépenses (6 mois)</div>',
                         unsafe_allow_html=True)
             trend = (df[df["type"] != "Revenu"]
@@ -510,15 +350,14 @@ def page_dashboard():
                 fill="tozeroy", fillcolor="rgba(26,26,26,0.07)",
             ))
             fig_line.update_layout(
-                height=190, paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
+                height=190, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                 margin=dict(t=10,b=10,l=10,r=10),
                 xaxis=dict(showgrid=False, tickformat="%b", zeroline=False),
                 yaxis=dict(showgrid=True, gridcolor="#F0F0F0", zeroline=False),
             )
             st.plotly_chart(fig_line, use_container_width=True)
 
-            # 5 dernières opérations
+            # Dernières opérations
             st.markdown('<div class="sec-label">Dernières opérations</div>',
                         unsafe_allow_html=True)
             html = '<div class="card">'
@@ -567,7 +406,7 @@ def page_dashboard():
                     "auteur":      email.split("@")[0],
                 }])
                 save_budget(pd.concat([full_df, new_row], ignore_index=True), sha)
-                st.success("✅ Enregistré dans budget_data.csv !")
+                st.success("✅ Enregistré !")
                 st.rerun()
 
     # ══ HISTORIQUE ═══════════════════════════════════
@@ -616,6 +455,29 @@ def page_dashboard():
             <div style="font-size:12px;color:#aaa;margin-top:4px">Compte actif</div>
         </div>""", unsafe_allow_html=True)
 
+        # Affichage MDP en clair sur demande
+        df_u, _ = get_users()
+        if not df_u.empty:
+            row_u = df_u[df_u["email"] == email]
+            if not row_u.empty:
+                with st.expander("🔑 Voir mes identifiants"):
+                    st.markdown(f"""
+                    <div class="card">
+                        <div style="margin-bottom:.5rem">
+                            <span style="font-size:11px;color:#aaa;text-transform:uppercase;
+                                  letter-spacing:.06em">Email</span>
+                            <div style="font-weight:700;font-size:15px;color:#1A1A1A;
+                                 margin-top:2px">{email}</div>
+                        </div>
+                        <div>
+                            <span style="font-size:11px;color:#aaa;text-transform:uppercase;
+                                  letter-spacing:.06em">Mot de passe</span>
+                            <div style="font-weight:700;font-size:15px;color:#1A1A1A;
+                                 margin-top:2px;font-family:monospace">
+                                 {row_u.iloc[0]['password']}</div>
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+
         if not df.empty:
             st.markdown('<div class="sec-label">Statistiques globales</div>',
                         unsafe_allow_html=True)
@@ -647,7 +509,7 @@ def page_dashboard():
 
 
 # ─────────────────────────────────────────────────────
-# 10. ROUTAGE
+# 8. ROUTAGE
 # ─────────────────────────────────────────────────────
 if st.session_state.logged_in:
     page_dashboard()

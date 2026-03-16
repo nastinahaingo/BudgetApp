@@ -467,13 +467,19 @@ def page_dashboard():
                 df_pie["cat_base"] = df_pie["categorie"].apply(get_cat_base)
                 st.markdown('<div class="sec-label">Répartition</div>', unsafe_allow_html=True)
                 totals  = df_pie.groupby("cat_base")["montant"].sum().reset_index()
-                fig_pie = px.pie(totals, values="montant", names="cat_base", hole=0.45,
+                totals["etiquette"] = totals.apply(
+                    lambda r: f"{r['cat_base']}\n{r['montant']:,.0f} €", axis=1)
+                fig_pie = px.pie(totals, values="montant", names="etiquette", hole=0.45,
                                  color_discrete_sequence=["#1A1A1A","#D94040","#2563EB",
                                                           "#2D6A0F","#A16207","#888",
                                                           "#C026D3","#EA580C","#0284C7"])
-                fig_pie.update_traces(textposition="inside", textinfo="percent+label",
-                                      textfont_size=11)
-                fig_pie.update_layout(showlegend=False, height=260,
+                fig_pie.update_traces(
+                    textposition="inside",
+                    textinfo="percent+label",
+                    textfont_size=10,
+                    insidetextorientation="radial",
+                )
+                fig_pie.update_layout(showlegend=False, height=300,
                                       paper_bgcolor="rgba(0,0,0,0)",
                                       margin=dict(t=10,b=10,l=10,r=10))
                 st.plotly_chart(fig_pie, use_container_width=True)
@@ -482,15 +488,24 @@ def page_dashboard():
             st.markdown('<div class="sec-label">Évolution</div>', unsafe_allow_html=True)
 
             periode_map = {
-                "Jour":    ("D",  "%d/%m"),
+                "Jour":    ("D",  "%d/%m/%Y"),
                 "Semaine": ("W",  "S%W %b"),
                 "Mois":    ("ME", "%b %Y"),
                 "Année":   ("YE", "%Y"),
             }
             resample_rule, tick_fmt = periode_map[periode_label]
             n_periods = {"Jour": 90, "Semaine": 26, "Mois": 24, "Année": 10}[periode_label]
+            # Pour le mode Jour, utiliser des catégories texte pour éviter l'interpolation
+            use_category_axis = (periode_label == "Jour")
 
             fig_line = go.Figure()
+
+            def format_x(df_trend):
+                """En mode Jour, convertit les dates en string pour éviter l'interpolation."""
+                if use_category_axis:
+                    df_trend = df_trend.copy()
+                    df_trend["date"] = df_trend["date"].dt.strftime("%d/%m")
+                return df_trend
 
             if affichage_label in ("Dépenses", "Les deux"):
                 dep_trend = (
@@ -498,6 +513,7 @@ def page_dashboard():
                     .set_index("date").resample(resample_rule)["montant"]
                     .sum().reset_index().tail(n_periods)
                 )
+                dep_trend = format_x(dep_trend)
                 if not dep_trend.empty:
                     fig_line.add_trace(go.Scatter(
                         x=dep_trend["date"], y=dep_trend["montant"],
@@ -514,6 +530,7 @@ def page_dashboard():
                     .set_index("date").resample(resample_rule)["montant"]
                     .sum().reset_index().tail(n_periods)
                 )
+                rev_trend = format_x(rev_trend)
                 if not rev_trend.empty:
                     fig_line.add_trace(go.Scatter(
                         x=rev_trend["date"], y=rev_trend["montant"],
@@ -525,13 +542,19 @@ def page_dashboard():
                     ))
 
             if fig_line.data:
+                xaxis_cfg = dict(showgrid=False, zeroline=False)
+                if use_category_axis:
+                    xaxis_cfg["type"] = "category"
+                    xaxis_cfg["tickangle"] = -45
+                else:
+                    xaxis_cfg["tickformat"] = tick_fmt
                 fig_line.update_layout(
-                    height=220,
+                    height=240,
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    margin=dict(t=10, b=10, l=10, r=10),
+                    margin=dict(t=10, b=40, l=10, r=10),
                     legend=dict(orientation="h", yanchor="bottom", y=1.02,
                                 xanchor="right", x=1, font=dict(size=11)),
-                    xaxis=dict(showgrid=False, tickformat=tick_fmt, zeroline=False),
+                    xaxis=xaxis_cfg,
                     yaxis=dict(showgrid=True, gridcolor="#F0F0F0", zeroline=False,
                                ticksuffix=" €"),
                 )

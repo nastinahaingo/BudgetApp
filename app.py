@@ -117,6 +117,7 @@ DEFAULT_CATEGORIES = {
     "🏥 Santé":        ("#FFFBEE", "#A16207"),
     "💰 Salaire":      ("#F0FFF4", "#2D6A0F"),
     "📦 Autre":        ("#F8F8F8", "#888"),
+    "💵 Epargne":      ("#F0FFF4", "#2D6A0F"),
 }
 
 DEFAULT_TRANSPORT_SOUS_CAT = [

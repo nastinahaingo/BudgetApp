@@ -1,1 +1,1 @@
-email,password_hash,salt,token,token_expiry
+email,password

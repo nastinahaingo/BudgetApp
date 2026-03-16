@@ -365,8 +365,6 @@ def page_auth():
                 st.rerun()
             else:
                 st.error(msg)
-        if st.button("Créer un compte"):
-            st.session_state.auth_mode = "register"; st.rerun()
 
     elif mode == "register":
         st.markdown("### Créer un compte")

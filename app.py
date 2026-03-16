@@ -337,7 +337,7 @@ def resolve_cat(cat, sous_cat, nouvelle_cat):
 # ─────────────────────────────────────────────────────
 # 8. SESSION
 # ─────────────────────────────────────────────────────
-for k, v in {"logged_in": False, "user_email": "", "auth_mode": "login",
+for k, v in {"logged_in": False, "user_email": "",
              "editing_id": None, "add_success": False, "edit_success": False,
              "add_desc_val": "", "add_mt_val": 0.01}.items():
     if k not in st.session_state:
@@ -350,37 +350,20 @@ for k, v in {"logged_in": False, "user_email": "", "auth_mode": "login",
 def page_auth():
     st.markdown('<div class="auth-logo"><h1>H&L</h1><p>Votre budget familial</p></div>',
                 unsafe_allow_html=True)
-    mode = st.session_state.auth_mode
 
-    if mode == "login":
-        with st.form("fl"):
-            email = st.text_input("Adresse email", placeholder="vous@example.com")
-            pwd   = st.text_input("Mot de passe", type="password")
-            sub   = st.form_submit_button("Se connecter")
-        if sub:
-            ok, msg = login(email, pwd)
-            if ok:
-                st.session_state.logged_in  = True
-                st.session_state.user_email = email.strip().lower()
-                st.rerun()
-            else:
-                st.error(msg)
+    with st.form("fl"):
+        email = st.text_input("Adresse email", placeholder="vous@example.com")
+        pwd   = st.text_input("Mot de passe", type="password")
+        sub   = st.form_submit_button("Se connecter")
+    if sub:
+        ok, msg = login(email, pwd)
+        if ok:
+            st.session_state.logged_in  = True
+            st.session_state.user_email = email.strip().lower()
+            st.rerun()
+        else:
+            st.error(msg)
 
-    elif mode == "register":
-        st.markdown("### Créer un compte")
-        with st.form("fr"):
-            email = st.text_input("Adresse email")
-            pwd1  = st.text_input("Mot de passe (6 car. min.)", type="password")
-            pwd2  = st.text_input("Confirmer", type="password")
-            sub   = st.form_submit_button("Créer mon compte")
-        if sub:
-            ok, msg = register(email, pwd1, pwd2)
-            if ok:
-                st.success(msg); st.session_state.auth_mode = "login"; st.rerun()
-            else:
-                st.error(msg)
-        if st.button("← Retour"):
-            st.session_state.auth_mode = "login"; st.rerun()
 
 
 # ─────────────────────────────────────────────────────

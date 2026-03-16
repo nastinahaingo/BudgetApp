@@ -711,38 +711,73 @@ def page_dashboard():
                 badge   = f'<span class="badge {"mine" if is_mine else ""}">{row["auteur"]}</span>'
                 is_editing_this = st.session_state.editing_id == tx_id
 
-                # ── Carte complète avec boutons Streamlit à l'intérieur ──
+                # ── Carte 100% Streamlit colonnes — boutons inline à droite ──
                 with st.container():
-                    st.markdown(f"""
-                    <div style="background:#fff;border-radius:16px;
-                         padding:1rem 1.1rem .5rem;
-                         margin-bottom:0;
-                         box-shadow:0 2px 14px rgba(0,0,0,.07)">
-                      <div class="tx" style="padding:.1rem 0 .6rem">
-                        <div class="tx-icon" style="background:{bg}">{icon}</div>
-                        <div class="tx-desc">
-                          <strong>{row['description']}</strong>
-                          <span>{row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']}</span>
-                          <span>{badge}</span>
-                        </div>
-                        <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
-                      </div>
-                      <div style="height:.5px;background:#F2F2F2;margin:0 -.1rem .5rem"></div>
-                    </div>""", unsafe_allow_html=True)
+                    st.markdown("""
+                    <style>
+                    [data-testid="stVerticalBlockBorderWrapper"] {
+                        background: #fff;
+                        border-radius: 16px !important;
+                        box-shadow: 0 2px 14px rgba(0,0,0,.07) !important;
+                        padding: 0 !important;
+                        margin-bottom: .65rem !important;
+                    }
+                    .tx-row-btn button {
+                        background: transparent !important;
+                        border: none !important;
+                        font-size: 16px !important;
+                        padding: 2px 6px !important;
+                        min-height: 28px !important;
+                        height: 28px !important;
+                        width: 28px !important;
+                        border-radius: 8px !important;
+                        line-height: 1 !important;
+                        color: #aaa !important;
+                    }
+                    .tx-row-btn button:hover { background: #F5F4F0 !important; color: #1A1A1A !important; }
+                    .tx-row-btn-del button { color: #D94040 !important; }
+                    .tx-row-btn-del button:hover { background: #FFF0F0 !important; }
+                    </style>
+                    """, unsafe_allow_html=True)
 
-                    # Boutons picto petits, collés sous la ligne de séparation
-                    st.markdown('<div class="tx-actions">', unsafe_allow_html=True)
-                    col_e, col_d = st.columns(2)
-                    with col_e:
-                        st.markdown('<div class="btn-modifier">', unsafe_allow_html=True)
-                        lbl_edit = "✕" if is_editing_this else "✏️"
-                        if st.button(lbl_edit, key=f"e_{tx_id}", use_container_width=True):
+                    col_info, col_amt, col_edit, col_del = st.columns([7, 3, 1, 1])
+                    with col_info:
+                        st.markdown(f"""
+                        <div style="padding:.75rem 0 .75rem 1rem">
+                          <div style="display:flex;align-items:center;gap:10px">
+                            <div style="width:34px;height:34px;border-radius:10px;
+                                 background:{bg};display:flex;align-items:center;
+                                 justify-content:center;font-size:17px;flex-shrink:0">{icon}</div>
+                            <div style="min-width:0">
+                              <div style="font-size:13px;font-weight:600;color:#1A1A1A;
+                                   white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                                   {row['description']}</div>
+                              <div style="font-size:11px;color:#bbb;margin-top:1px">
+                                {row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']}
+                                {badge}
+                              </div>
+                            </div>
+                          </div>
+                        </div>""", unsafe_allow_html=True)
+                    with col_amt:
+                        st.markdown(f"""
+                        <div style="display:flex;align-items:center;justify-content:flex-end;
+                             height:100%;padding-right:.5rem">
+                          <span style="font-size:14px;font-weight:800;
+                            color:{"#2D6A0F" if is_rev else "#D94040"}">
+                            {sign}{row['montant']:,.2f} €
+                          </span>
+                        </div>""", unsafe_allow_html=True)
+                    with col_edit:
+                        st.markdown('<div class="tx-row-btn">', unsafe_allow_html=True)
+                        lbl = "✕" if is_editing_this else "✏️"
+                        if st.button(lbl, key=f"e_{tx_id}"):
                             st.session_state.editing_id = None if is_editing_this else tx_id
                             st.rerun()
                         st.markdown('</div>', unsafe_allow_html=True)
-                    with col_d:
-                        st.markdown('<div class="btn-supprimer">', unsafe_allow_html=True)
-                        if st.button("🗑", key=f"d_{tx_id}", use_container_width=True):
+                    with col_del:
+                        st.markdown('<div class="tx-row-btn tx-row-btn-del">', unsafe_allow_html=True)
+                        if st.button("🗑", key=f"d_{tx_id}"):
                             _, fresh_sha = gh_read(BUDGET_FILE)
                             full_df, _   = read_budget_cached()
                             full_df      = full_df[full_df["id"].astype(str) != tx_id]
@@ -750,7 +785,6 @@ def page_dashboard():
                             if ok: st.rerun()
                             else:  st.error(f"Erreur : {err}")
                         st.markdown('</div>', unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
 
                 # ── Bloc modifier inline — s'ouvre sous la carte ──
                 if is_editing_this:

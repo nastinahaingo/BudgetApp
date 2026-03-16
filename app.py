@@ -1,318 +1,600 @@
+"""
+H&L Budget — Application de suivi des dépenses du foyer
+Mobile-first · Supabase Auth (email + récupération MDP) · Plotly
+
+Dépendances :
+    pip install streamlit supabase plotly pandas
+
+Configuration :
+    Créez un projet sur https://supabase.com (gratuit) puis copiez
+    Project URL et anon key dans les secrets Streamlit :
+
+    .streamlit/secrets.toml
+    ───────────────────────
+    SUPABASE_URL = "https://xxxx.supabase.co"
+    SUPABASE_KEY = "eyJh..."
+
+    Dans Supabase > Authentication > Email Templates, personnalisez
+    les templates de confirmation et de réinitialisation de MDP.
+    L'envoi d'email est géré nativement par Supabase (SMTP intégré).
+
+    SQL à exécuter dans Supabase > SQL Editor pour créer la table :
+    ──────────────────────────────────────────────────────────────────
+    create table transactions (
+      id          uuid primary key default gen_random_uuid(),
+      user_id     uuid references auth.users(id) on delete cascade,
+      created_at  timestamptz default now(),
+      date        date not null,
+      description text not null,
+      categorie   text not null,
+      type        text not null,
+      montant     numeric not null,
+      auteur      text not null
+    );
+    alter table transactions enable row level security;
+    create policy "Users see own rows"
+      on transactions for all
+      using (auth.uid() = user_id)
+      with check (auth.uid() = user_id);
+    ──────────────────────────────────────────────────────────────────
+"""
+
 import streamlit as st
 import pandas as pd
-import hashlib
 import plotly.express as px
-from datetime import datetime
-import os
-import time
-import secrets
+import plotly.graph_objects as go
+from datetime import datetime, date
+from supabase import create_client, Client
 
-# ==========================================
-# 1. CONFIGURATION ET CONSTANTES
-# ==========================================
-st.set_page_config(page_title="H&L Budget", layout="centered")
 
-USER_DB = "users_admin.csv"
-BUDGET_DB = "budget_admin.csv"
-
-COLONNES_USERS = ["username", "password_hash", "salt"]
-COLONNES_BUDGET = ["id", "date", "description", "categorie", "type", "montant", "paiement", "auteur"]
-
-CATEGORIES = ["Alimentation", "Habitation", "Loisirs", "Revenu", "Santé", "Transport", "Autre"]
-TYPES = ["Fixe", "Revenu", "Variable"]
+# ─────────────────────────────────────────────
+# 1. CONFIG & STYLE MOBILE-FIRST
+# ─────────────────────────────────────────────
+st.set_page_config(
+    page_title="H&L Budget",
+    page_icon="💰",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
 
 st.markdown("""
-    <style>
-    .stApp { background-color: #FFFFFF; color: #1A1A1A; }
-    h1, h2, h3 { color: #1A1A1A !important; font-family: 'Helvetica Neue', sans-serif; font-weight: 600; }
-    .stButton>button {
-        width: 100%; border-radius: 10px; border: 1px solid #1A1A1A;
-        background-color: #1A1A1A; color: white; padding: 10px; font-weight: bold;
-    }
-    .card {
-        background-color: #F9F9F9; padding: 15px; border-radius: 12px;
-        margin-bottom: 12px; border: 1px solid #EEEEEE;
-        box-shadow: 0px 2px 5px rgba(0,0,0,0.05);
-    }
-    .user-tag {
-        background-color: #E0E0E0; color: #1A1A1A; padding: 3px 10px;
-        border-radius: 15px; font-size: 0.75em; font-weight: bold;
-    }
-    </style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<style>
+  /* ── Globals ── */
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+  html, body, [class*="css"] {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #F5F4F0 !important;
+  }
+  .main .block-container { padding: 0 1rem 5rem; max-width: 480px; }
+
+  /* ── Header ── */
+  .hl-header {
+    background: #1A1A1A;
+    color: #fff;
+    margin: -1rem -1rem 1.5rem;
+    padding: 1.5rem 1.25rem 2.5rem;
+    border-radius: 0 0 24px 24px;
+  }
+  .hl-header small { font-size: 11px; opacity: .55; text-transform: uppercase; letter-spacing: .08em; }
+  .hl-header h2 { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .hl-header p { font-size: 13px; opacity: .65; margin-top: 2px; }
+
+  /* ── Cards ── */
+  .card {
+    background: #fff;
+    border-radius: 18px;
+    padding: 1rem 1.1rem;
+    margin-bottom: .75rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,.07);
+  }
+
+  /* ── Metric row ── */
+  .metric-row { display: flex; gap: 8px; margin-bottom: .75rem; }
+  .metric-box {
+    flex: 1; background: #fff; border-radius: 14px;
+    padding: .75rem; text-align: center;
+    box-shadow: 0 2px 12px rgba(0,0,0,.07);
+  }
+  .metric-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #999; display: block; }
+  .metric-val { font-size: 18px; font-weight: 700; color: #1A1A1A; display: block; margin-top: 2px; }
+  .metric-val.green { color: #3B6D11; }
+  .metric-val.red   { color: #E24B4A; }
+
+  /* ── Transaction items ── */
+  .tx { display: flex; align-items: center; gap: 12px; padding: .65rem 0; border-bottom: 0.5px solid #F0F0F0; }
+  .tx:last-child { border-bottom: none; }
+  .tx-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .tx-desc { flex: 1; }
+  .tx-desc strong { font-size: 13px; font-weight: 600; color: #1A1A1A; display: block; }
+  .tx-desc span   { font-size: 11px; color: #aaa; }
+  .tx-amt { font-size: 14px; font-weight: 700; }
+  .tx-amt.red   { color: #E24B4A; }
+  .tx-amt.green { color: #3B6D11; }
+
+  /* ── Auth ── */
+  .auth-wrap { max-width: 380px; margin: 2rem auto; }
+  .auth-logo { text-align: center; margin-bottom: 2rem; }
+  .auth-logo h1 { font-size: 32px; font-weight: 800; color: #1A1A1A; letter-spacing: -1px; }
+  .auth-logo p  { font-size: 14px; color: #888; margin-top: 4px; }
+
+  /* ── Buttons ── */
+  .stButton > button {
+    width: 100%; border-radius: 14px !important;
+    background: #1A1A1A !important; color: #fff !important;
+    border: none !important; padding: 14px !important;
+    font-size: 15px !important; font-weight: 700 !important;
+    transition: opacity .2s;
+  }
+  .stButton > button:hover { opacity: .85; }
+  div[data-testid="stForm"] { background: transparent; border: none; }
+  .stTextInput input, .stNumberInput input, .stSelectbox select, .stDateInput input {
+    border-radius: 12px !important; border: 1.5px solid #E0E0E0 !important;
+    font-size: 15px !important; padding: 12px 14px !important;
+    background: #fff !important;
+  }
+  .stAlert { border-radius: 12px !important; }
+
+  /* ── Section label ── */
+  .sec-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .08em; color: #999; margin: 1.25rem 0 .5rem;
+  }
+
+  /* ── Tab nav ── */
+  div[data-baseweb="tab-list"] { background: transparent !important; gap: 4px; }
+  div[data-baseweb="tab"] { border-radius: 20px !important; padding: 6px 18px !important; font-size: 13px !important; font-weight: 600 !important; }
+  div[aria-selected="true"] { background: #1A1A1A !important; color: #fff !important; }
+</style>
 """, unsafe_allow_html=True)
 
 
-# ==========================================
-# 2. SÉCURITÉ — HACHAGE DES MOTS DE PASSE
-# ==========================================
-def hash_password(password: str, salt: str = None) -> tuple[str, str]:
-    """
-    Hache le mot de passe avec un sel unique (PBKDF2-HMAC-SHA256).
-    Retourne (hash_hex, salt_hex).
+# ─────────────────────────────────────────────
+# 2. CLIENT SUPABASE
+# ─────────────────────────────────────────────
+@st.cache_resource
+def get_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
-    CORRECTION SÉCURITÉ : L'ancien code utilisait un simple SHA-256 sans sel,
-    ce qui est vulnérable aux attaques par rainbow table.
-    """
-    if salt is None:
-        salt = secrets.token_hex(16)
-    key = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        iterations=260_000,  # recommandation OWASP 2024
+supabase = get_supabase()
+
+
+# ─────────────────────────────────────────────
+# 3. ÉTAT DE SESSION
+# ─────────────────────────────────────────────
+def _init_session():
+    defaults = {
+        "access_token": None,
+        "refresh_token": None,
+        "user_email": "",
+        "user_id": None,
+        "auth_mode": "login",   # login | register | forgot
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+_init_session()
+
+def is_logged_in() -> bool:
+    return bool(st.session_state.access_token)
+
+
+# ─────────────────────────────────────────────
+# 4. DONNÉES
+# ─────────────────────────────────────────────
+CATEGORIES = {
+    "🏠 Logement":      "#1A1A1A",
+    "🛒 Alimentation":  "#E24B4A",
+    "🚗 Transport":     "#378ADD",
+    "🎬 Loisirs":       "#639922",
+    "🏥 Santé":         "#BA7517",
+    "📦 Autre":         "#888",
+}
+TYPES = ["Variable", "Fixe", "Revenu"]
+
+def cat_icon(cat: str) -> str:
+    return cat.split(" ")[0] if cat else "📦"
+
+def cat_bg(cat: str) -> str:
+    colors = {
+        "Logement": "#F0F0F0", "Alimentation": "#FFF0F0",
+        "Transport": "#F0F6FF", "Loisirs": "#F0FFF4",
+        "Santé": "#FFFBF0", "Autre": "#F8F8F8",
+    }
+    for k, v in colors.items():
+        if k in cat:
+            return v
+    return "#F8F8F8"
+
+
+@st.cache_data(ttl=10)
+def load_transactions(user_id: str) -> pd.DataFrame:
+    resp = (
+        supabase.table("transactions")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("date", desc=True)
+        .execute()
     )
-    return key.hex(), salt
-
-
-def verify_password(password: str, stored_hash: str, salt: str) -> bool:
-    computed, _ = hash_password(password, salt)
-    # Comparaison en temps constant pour éviter les timing attacks
-    return secrets.compare_digest(computed, stored_hash)
-
-
-# ==========================================
-# 3. GESTION DES FICHIERS CSV
-# ==========================================
-def init_files() -> None:
-    """Crée les fichiers CSV s'ils n'existent pas encore."""
-    if not os.path.exists(USER_DB):
-        pd.DataFrame(columns=COLONNES_USERS).to_csv(USER_DB, index=False)
-    if not os.path.exists(BUDGET_DB):
-        pd.DataFrame(columns=COLONNES_BUDGET).to_csv(BUDGET_DB, index=False)
-
-
-@st.cache_data(ttl=5)
-def get_users() -> pd.DataFrame:
-    """
-    Charge la base d'utilisateurs.
-
-    CORRECTION BUG : L'ancienne version pouvait crasher silencieusement sur
-    une exception générique. On laisse maintenant remonter les vraies erreurs.
-    """
-    if not os.path.exists(USER_DB):
-        return pd.DataFrame(columns=COLONNES_USERS)
-    return pd.read_csv(USER_DB)
-
-
-@st.cache_data(ttl=5)
-def get_budget() -> pd.DataFrame:
-    """
-    Charge et nettoie les transactions.
-
-    CORRECTION BUG : Les exceptions silencieuses masquaient les erreurs de
-    lecture. On gère maintenant uniquement ce qu'on sait traiter.
-    """
-    if not os.path.exists(BUDGET_DB):
-        return pd.DataFrame(columns=COLONNES_BUDGET)
-
-    df = pd.read_csv(BUDGET_DB)
-    if df.empty:
-        return df
-
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["montant"] = pd.to_numeric(df["montant"], errors="coerce").fillna(0)
-    df = df.dropna(subset=["date"])
+    if not resp.data:
+        return pd.DataFrame()
+    df = pd.DataFrame(resp.data)
+    df["date"] = pd.to_datetime(df["date"])
+    df["montant"] = pd.to_numeric(df["montant"])
     return df
 
 
-def save_budget(df: pd.DataFrame) -> None:
-    """Sauvegarde le DataFrame et invalide le cache."""
-    df.to_csv(BUDGET_DB, index=False)
-    get_budget.clear()
+def invalidate_cache():
+    load_transactions.clear()
 
 
-def save_users(df: pd.DataFrame) -> None:
-    """Sauvegarde les utilisateurs et invalide le cache."""
-    df.to_csv(USER_DB, index=False)
-    get_users.clear()
+def add_transaction(user_id: str, email: str, row: dict):
+    supabase.table("transactions").insert({
+        "user_id":     user_id,
+        "date":        row["date"],
+        "description": row["description"],
+        "categorie":   row["categorie"],
+        "type":        row["type"],
+        "montant":     row["montant"],
+        "auteur":      email,
+    }).execute()
+    invalidate_cache()
 
 
-init_files()
+def delete_transaction(tx_id: str):
+    supabase.table("transactions").delete().eq("id", tx_id).execute()
+    invalidate_cache()
 
 
-# ==========================================
-# 4. AUTHENTIFICATION
-# ==========================================
-def login(username: str, password: str) -> bool:
-    df_u = get_users()
-    row = df_u[df_u["username"] == username]
-    if row.empty:
-        return False
+# ─────────────────────────────────────────────
+# 5. PAGE AUTHENTIFICATION
+# ─────────────────────────────────────────────
+def page_auth():
+    st.markdown("""
+    <div class="auth-logo">
+        <h1>H&L</h1>
+        <p>Votre budget familial</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # CORRECTION SÉCURITÉ : support de l'ancienne colonne 'password' (migration)
-    if "password_hash" in row.columns and "salt" in row.columns:
-        return verify_password(password, row.iloc[0]["password_hash"], row.iloc[0]["salt"])
+    mode = st.session_state.auth_mode
 
-    # Ancien format SHA-256 sans sel — accepté pour rétrocompatibilité
-    legacy_hash = hashlib.sha256(password.encode()).hexdigest()
-    return row.iloc[0].get("password", "") == legacy_hash
+    if mode == "login":
+        with st.form("login_form"):
+            email = st.text_input("Adresse email", placeholder="vous@exemple.fr")
+            password = st.text_input("Mot de passe", type="password")
+            submitted = st.form_submit_button("Se connecter")
 
-
-def register(username: str, password: str) -> tuple[bool, str]:
-    """Retourne (succès, message)."""
-    if not username or not password:
-        return False, "Le nom d'utilisateur et le mot de passe sont obligatoires."
-    if len(password) < 8:
-        return False, "Le mot de passe doit contenir au moins 8 caractères."
-
-    df_u = get_users()
-    if username in df_u["username"].values:
-        return False, "Ce nom d'utilisateur est déjà pris."
-
-    pw_hash, salt = hash_password(password)
-    new_row = pd.DataFrame([[username, pw_hash, salt]], columns=COLONNES_USERS)
-    save_users(pd.concat([df_u, new_row], ignore_index=True))
-    return True, "Compte créé ! Connectez-vous."
-
-
-# — État de session
-if "auth" not in st.session_state:
-    st.session_state.auth = False
-    st.session_state.user = ""
-
-if not st.session_state.auth:
-    st.markdown("<h1 style='text-align:center;'>Accès H&L Budget</h1>", unsafe_allow_html=True)
-    tab_login, tab_register = st.tabs(["Connexion", "Créer un compte"])
-
-    with tab_login:
-        username = st.text_input("Utilisateur", key="u_login")
-        password = st.text_input("Mot de passe", type="password", key="p_login")
-        if st.button("Se connecter"):
-            if login(username, password):
-                st.session_state.auth = True
-                st.session_state.user = username
-                st.rerun()
+        if submitted:
+            if not email or not password:
+                st.error("Veuillez remplir tous les champs.")
             else:
-                # CORRECTION SÉCURITÉ : message générique pour ne pas révéler
-                # si c'est le nom ou le mot de passe qui est incorrect.
-                st.error("Identifiants incorrects.")
+                try:
+                    res = supabase.auth.sign_in_with_password({
+                        "email": email,
+                        "password": password,
+                    })
+                    st.session_state.access_token  = res.session.access_token
+                    st.session_state.refresh_token = res.session.refresh_token
+                    st.session_state.user_email    = res.user.email
+                    st.session_state.user_id       = str(res.user.id)
+                    st.rerun()
+                except Exception as e:
+                    st.error("Email ou mot de passe incorrect.")
 
-    with tab_register:
-        new_user = st.text_input("Nouveau nom", key="u_reg")
-        new_pass = st.text_input("Nouveau mot de passe (8 car. min.)", type="password", key="p_reg")
-        if st.button("Valider l'inscription"):
-            ok, msg = register(new_user, new_pass)
-            (st.success if ok else st.error)(msg)
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Mot de passe oublié ?", key="go_forgot"):
+                st.session_state.auth_mode = "forgot"
+                st.rerun()
+        with col2:
+            if st.button("Créer un compte", key="go_register"):
+                st.session_state.auth_mode = "register"
+                st.rerun()
 
-    st.stop()
+    elif mode == "register":
+        st.markdown("### Créer un compte")
+        with st.form("register_form"):
+            email = st.text_input("Adresse email", placeholder="vous@exemple.fr")
+            pwd1  = st.text_input("Mot de passe", type="password")
+            pwd2  = st.text_input("Confirmer le mot de passe", type="password")
+            submitted = st.form_submit_button("Créer mon compte")
+
+        if submitted:
+            if not email or not pwd1:
+                st.error("Veuillez remplir tous les champs.")
+            elif len(pwd1) < 8:
+                st.error("Le mot de passe doit contenir au moins 8 caractères.")
+            elif pwd1 != pwd2:
+                st.error("Les mots de passe ne correspondent pas.")
+            else:
+                try:
+                    supabase.auth.sign_up({"email": email, "password": pwd1})
+                    st.success("✅ Compte créé ! Vérifiez votre email pour confirmer votre inscription.")
+                    st.session_state.auth_mode = "login"
+                except Exception as e:
+                    st.error(f"Erreur lors de la création du compte : {e}")
+
+        if st.button("← Retour à la connexion", key="back_login_reg"):
+            st.session_state.auth_mode = "login"
+            st.rerun()
+
+    elif mode == "forgot":
+        st.markdown("### Récupérer mon mot de passe")
+        st.info("Un lien de réinitialisation sera envoyé à votre adresse email.")
+        with st.form("forgot_form"):
+            email = st.text_input("Adresse email", placeholder="vous@exemple.fr")
+            submitted = st.form_submit_button("Envoyer le lien")
+
+        if submitted:
+            if not email:
+                st.error("Veuillez saisir votre adresse email.")
+            else:
+                try:
+                    supabase.auth.reset_password_email(email)
+                    st.success("✅ Email envoyé ! Vérifiez votre boîte de réception.")
+                    st.session_state.auth_mode = "login"
+                except Exception:
+                    # Message neutre pour ne pas révéler si l'email existe
+                    st.success("✅ Si cet email existe, un lien vous a été envoyé.")
+
+        if st.button("← Retour à la connexion", key="back_login_forgot"):
+            st.session_state.auth_mode = "login"
+            st.rerun()
 
 
-# ==========================================
-# 5. DASHBOARD & ANALYSES
-# ==========================================
-df = get_budget()
+# ─────────────────────────────────────────────
+# 6. PAGE PRINCIPALE
+# ─────────────────────────────────────────────
+def page_dashboard():
+    user_id    = st.session_state.user_id
+    user_email = st.session_state.user_email
+    user_name  = user_email.split("@")[0].capitalize()
 
-st.sidebar.write(f"Utilisateur : **{st.session_state.user}**")
-if st.sidebar.button("Déconnexion"):
-    st.session_state.auth = False
-    st.session_state.user = ""
-    st.rerun()
+    # ── Header ──
+    now = datetime.now()
+    month_fr = ["Janvier","Février","Mars","Avril","Mai","Juin",
+                 "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
+    st.markdown(f"""
+    <div class="hl-header">
+        <small>{month_fr[now.month - 1]} {now.year}</small>
+        <h2>Bonjour {user_name} 👋</h2>
+        <p>Voici votre budget du mois</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-st.title("H&L Budget Pro")
+    # ── Onglets ──
+    tab_home, tab_add, tab_history, tab_account = st.tabs(
+        ["📊 Tableau de bord", "➕ Ajouter", "📋 Historique", "👤 Compte"]
+    )
 
-if not df.empty:
-    col1, col2 = st.columns(2)
+    df = load_transactions(user_id)
 
-    with col1:
-        df_dep = df[df["type"] != "Revenu"]
-        if not df_dep.empty:
-            fig_pie = px.pie(
-                df_dep, values="montant", names="categorie", hole=0.4,
-                color_discrete_sequence=px.colors.sequential.Greys,
+    # ═══ TAB 1 : TABLEAU DE BORD ═══
+    with tab_home:
+        if df.empty:
+            st.info("Aucune transaction enregistrée. Commencez par en ajouter une !")
+        else:
+            # Filtre mois courant
+            df_month = df[
+                (df["date"].dt.month == now.month) &
+                (df["date"].dt.year  == now.year)
+            ]
+
+            revenus  = df_month[df_month["type"] == "Revenu"]["montant"].sum()
+            depenses = df_month[df_month["type"] != "Revenu"]["montant"].sum()
+            solde    = revenus - depenses
+
+            # Métriques
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(f"""
+                <div class="metric-box">
+                    <span class="metric-label">Revenus</span>
+                    <span class="metric-val green">+{revenus:,.0f} €</span>
+                </div>""", unsafe_allow_html=True)
+            with col2:
+                st.markdown(f"""
+                <div class="metric-box">
+                    <span class="metric-label">Dépenses</span>
+                    <span class="metric-val red">−{depenses:,.0f} €</span>
+                </div>""", unsafe_allow_html=True)
+            with col3:
+                color_cls = "green" if solde >= 0 else "red"
+                sign      = "+" if solde >= 0 else "−"
+                st.markdown(f"""
+                <div class="metric-box">
+                    <span class="metric-label">Solde</span>
+                    <span class="metric-val {color_cls}">{sign}{abs(solde):,.0f} €</span>
+                </div>""", unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # ── Camembert ──
+            df_dep = df_month[df_month["type"] != "Revenu"]
+            if not df_dep.empty:
+                st.markdown('<div class="sec-label">Répartition des dépenses</div>', unsafe_allow_html=True)
+                cat_totals = (
+                    df_dep.groupby("categorie")["montant"]
+                    .sum()
+                    .reset_index()
+                    .sort_values("montant", ascending=False)
+                )
+                fig_pie = px.pie(
+                    cat_totals,
+                    values="montant",
+                    names="categorie",
+                    hole=0.45,
+                    color_discrete_sequence=[
+                        "#1A1A1A", "#E24B4A", "#378ADD", "#639922", "#BA7517", "#888"
+                    ],
+                )
+                fig_pie.update_traces(textposition="inside", textinfo="percent+label")
+                fig_pie.update_layout(
+                    showlegend=False,
+                    height=280,
+                    margin=dict(t=10, b=10, l=10, r=10),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+            # ── Évolution mensuelle ──
+            st.markdown('<div class="sec-label">Évolution des dépenses</div>', unsafe_allow_html=True)
+            df_trend = (
+                df[df["type"] != "Revenu"]
+                .set_index("date")
+                .resample("ME")["montant"]
+                .sum()
+                .reset_index()
+                .tail(6)
             )
-            fig_pie.update_layout(showlegend=False, height=200, margin=dict(t=10, b=10, l=10, r=10))
-            st.plotly_chart(fig_pie, use_container_width=True)
+            fig_line = go.Figure()
+            fig_line.add_trace(go.Scatter(
+                x=df_trend["date"],
+                y=df_trend["montant"],
+                mode="lines+markers",
+                line=dict(color="#1A1A1A", width=2.5),
+                marker=dict(size=6, color="#1A1A1A"),
+                fill="tozeroy",
+                fillcolor="rgba(26,26,26,0.06)",
+            ))
+            fig_line.update_layout(
+                height=200,
+                margin=dict(t=10, b=10, l=10, r=10),
+                xaxis=dict(showgrid=False, zeroline=False, tickformat="%b"),
+                yaxis=dict(showgrid=True, gridcolor="#F0F0F0", zeroline=False),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(fig_line, use_container_width=True)
 
-    with col2:
-        # CORRECTION BUG : on s'assure que l'index est bien un DatetimeIndex
-        # avant de resampler, ce qui évitait un crash si la colonne date
-        # contenait des NaT résiduels.
-        df_trend = (
-            df.dropna(subset=["date"])
-            .set_index("date")
-            .resample("ME")["montant"]
-            .sum()
-            .reset_index()
-        )
-        fig_line = px.line(df_trend, x="date", y="montant", color_discrete_sequence=["#1A1A1A"])
-        fig_line.update_layout(height=200, margin=dict(t=10, b=10, l=10, r=10), xaxis_title="", yaxis_title="")
-        st.plotly_chart(fig_line, use_container_width=True)
+            # ── Dernières opérations ──
+            st.markdown('<div class="sec-label">Dernières opérations</div>', unsafe_allow_html=True)
+            recent = df.head(5)
+            html_txs = '<div class="card">'
+            for _, row in recent.iterrows():
+                is_rev  = row["type"] == "Revenu"
+                amt_cls = "green" if is_rev else "red"
+                sign    = "+" if is_rev else "−"
+                icon    = cat_icon(row["categorie"])
+                bg      = cat_bg(row["categorie"])
+                html_txs += f"""
+                <div class="tx">
+                    <div class="tx-icon" style="background:{bg}">{icon}</div>
+                    <div class="tx-desc">
+                        <strong>{row['description']}</strong>
+                        <span>{row['date'].strftime('%d/%m')} · {row['categorie']} · {row['auteur'].split('@')[0]}</span>
+                    </div>
+                    <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
+                </div>"""
+            html_txs += "</div>"
+            st.markdown(html_txs, unsafe_allow_html=True)
 
-st.divider()
+    # ═══ TAB 2 : AJOUTER ═══
+    with tab_add:
+        st.markdown("### Nouvelle opération")
+        with st.form("form_add", clear_on_submit=True):
+            description = st.text_input("Description", placeholder="Ex : Courses Leclerc")
+            montant     = st.number_input("Montant (€)", min_value=0.01, step=0.01, format="%.2f")
+            categorie   = st.selectbox("Catégorie", list(CATEGORIES.keys()))
+            type_op     = st.selectbox("Type", TYPES)
+            date_op     = st.date_input("Date", value=date.today())
+            submitted   = st.form_submit_button("Enregistrer ✓")
 
-
-# ==========================================
-# 6. SAISIE D'UNE TRANSACTION
-# ==========================================
-with st.expander("Nouvelle opération", expanded=False):
-    with st.form("form_add", clear_on_submit=True):
-        desc = st.text_input("Description")
-        c1, c2 = st.columns(2)
-        with c1:
-            mt = st.number_input("Montant (€)", min_value=0.0, step=0.01, format="%.2f")
-            cat = st.selectbox("Catégorie", CATEGORIES)
-        with c2:
-            dt = st.date_input("Date", datetime.now())
-            tp = st.selectbox("Type", TYPES)
-
-        if st.form_submit_button("Enregistrer"):
-            if not desc.strip():
+        if submitted:
+            if not description.strip():
                 st.warning("Veuillez saisir une description.")
-            elif mt == 0.0:
-                st.warning("Le montant doit être supérieur à zéro.")
             else:
-                # CORRECTION PERFORMANCE : on recharge le CSV uniquement ici,
-                # pas à chaque rendu. L'ID utilise secrets pour éviter les
-                # collisions en environnement multi-utilisateur.
-                current_df = get_budget()
-                new_row = pd.DataFrame([{
-                    "id": secrets.token_hex(8),          # ID aléatoire robuste
-                    "date": dt.strftime("%Y-%m-%d"),
-                    "description": desc.strip(),
-                    "categorie": cat,
-                    "type": tp,
-                    "montant": mt,
-                    "paiement": "Carte",
-                    "auteur": st.session_state.user,
-                }])
-                save_budget(pd.concat([current_df, new_row], ignore_index=True))
-                st.success("Enregistré avec succès !")
-                time.sleep(0.5)
+                add_transaction(user_id, user_email, {
+                    "date":        date_op.strftime("%Y-%m-%d"),
+                    "description": description.strip(),
+                    "categorie":   categorie,
+                    "type":        type_op,
+                    "montant":     montant,
+                })
+                st.success("✅ Opération enregistrée !")
                 st.rerun()
 
+    # ═══ TAB 3 : HISTORIQUE ═══
+    with tab_history:
+        if df.empty:
+            st.info("Aucune transaction enregistrée.")
+        else:
+            # Filtre par catégorie
+            cats = ["Toutes"] + sorted(df["categorie"].unique().tolist())
+            selected_cat = st.selectbox("Filtrer par catégorie", cats, label_visibility="collapsed")
 
-# ==========================================
-# 7. HISTORIQUE & SUPPRESSION
-# ==========================================
-st.subheader("Historique")
+            df_filtered = df if selected_cat == "Toutes" else df[df["categorie"] == selected_cat]
 
-if df.empty:
-    st.info("Aucune transaction enregistrée.")
-else:
-    df_display = df.sort_values("date", ascending=False)
+            for _, row in df_filtered.iterrows():
+                is_rev  = row["type"] == "Revenu"
+                amt_cls = "green" if is_rev else "red"
+                sign    = "+" if is_rev else "−"
+                icon    = cat_icon(row["categorie"])
+                bg      = cat_bg(row["categorie"])
+                tx_id   = str(row["id"])
 
-    for _, row in df_display.iterrows():
-        # CORRECTION QUALITÉ : on n'utilise plus l'index Pandas (i) comme clé
-        # de bouton — on utilise l'ID métier stable.
-        row_id = str(row["id"])
+                col_tx, col_del = st.columns([5, 1])
+                with col_tx:
+                    st.markdown(f"""
+                    <div class="card" style="margin-bottom:.4rem">
+                        <div class="tx" style="padding:.2rem 0">
+                            <div class="tx-icon" style="background:{bg}">{icon}</div>
+                            <div class="tx-desc">
+                                <strong>{row['description']}</strong>
+                                <span>{row['date'].strftime('%d/%m/%Y')} · {row['categorie']}</span>
+                                <span style="color:#bbb">par {row['auteur'].split('@')[0]}</span>
+                            </div>
+                            <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+                with col_del:
+                    if st.button("🗑", key=f"del_{tx_id}", help="Supprimer"):
+                        delete_transaction(tx_id)
+                        st.rerun()
 
+    # ═══ TAB 4 : COMPTE ═══
+    with tab_account:
         st.markdown(f"""
         <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size:0.85em; color:#666;">
-                    {row['date'].strftime('%d/%m/%Y')} | {row['categorie']}
-                </span>
-                <b style="font-size:1.1em;">{row['montant']:.2f} €</b>
-            </div>
-            <div style="font-weight:500; margin-top:5px;">{row['description']}</div>
-            <div style="margin-top:10px;">
-                <span class="user-tag">Auteur : {row['auteur']}</span>
-            </div>
+            <div style="font-size:32px;text-align:center;margin-bottom:.75rem">👤</div>
+            <div style="text-align:center;font-weight:700;font-size:16px;color:#1A1A1A">{user_email}</div>
+            <div style="text-align:center;font-size:12px;color:#aaa;margin-top:4px">Compte actif</div>
         </div>
         """, unsafe_allow_html=True)
 
-        if st.button("🗑 Supprimer", key=f"del_{row_id}"):
-            fresh_df = get_budget()
-            fresh_df = fresh_df[fresh_df["id"].astype(str) != row_id]
-            save_budget(fresh_df)
+        if not df.empty:
+            st.markdown('<div class="sec-label">Statistiques globales</div>', unsafe_allow_html=True)
+            total_dep = df[df["type"] != "Revenu"]["montant"].sum()
+            total_rev = df[df["type"] == "Revenu"]["montant"].sum()
+            nb_tx     = len(df)
+            st.markdown(f"""
+            <div class="metric-row">
+                <div class="metric-box"><span class="metric-label">Toutes dépenses</span><span class="metric-val red">{total_dep:,.0f} €</span></div>
+                <div class="metric-box"><span class="metric-label">Tous revenus</span><span class="metric-val green">{total_rev:,.0f} €</span></div>
+                <div class="metric-box"><span class="metric-label">Opérations</span><span class="metric-val">{nb_tx}</span></div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Se déconnecter", key="logout"):
+            try:
+                supabase.auth.sign_out()
+            except Exception:
+                pass
+            for key in ["access_token", "refresh_token", "user_email", "user_id"]:
+                st.session_state[key] = None if key != "user_email" else ""
+            invalidate_cache()
             st.rerun()
+
+
+# ─────────────────────────────────────────────
+# 7. ROUTAGE
+# ─────────────────────────────────────────────
+if is_logged_in():
+    page_dashboard()
+else:
+    page_auth()

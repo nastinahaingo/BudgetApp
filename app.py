@@ -91,8 +91,8 @@ div[data-baseweb="tab"] { border-radius:20px !important; padding:6px 16px !impor
 div[aria-selected="true"] { background:#1A1A1A !important; color:#fff !important; }
 .badge {
     display:inline-block; font-size:10px; font-weight:700; padding:2px 8px;
-    border-radius:20px; background:#F0F0EE; color:#888;
-    text-transform:uppercase; letter-spacing:.04em;
+    border-radius:20px; background:#E8E8E8; color:#666;
+    text-transform:uppercase; letter-spacing:.04em; max-width:fit-content;
 }
 .badge.mine { background:#1A1A1A; color:#fff; }
 </style>
@@ -635,17 +635,20 @@ def page_dashboard():
 
             st.markdown("""
             <style>
-            .btn-modifier > button {
+            .btn-modifier > div > button, .btn-modifier > button {
                 background: #F5F4F0 !important; color: #1A1A1A !important;
-                border: none !important; border-radius: 0 0 0 16px !important;
-                padding: 9px !important; font-size: 13px !important; font-weight: 600 !important;
+                border: none !important; border-radius: 10px !important;
+                width: 36px !important; height: 36px !important;
+                padding: 0 !important; font-size: 16px !important;
+                min-height: 36px !important; line-height: 1 !important;
             }
-            .btn-supprimer > button {
+            .btn-supprimer > div > button, .btn-supprimer > button {
                 background: #FFF0F0 !important; color: #D94040 !important;
-                border: none !important; border-radius: 0 0 16px 0 !important;
-                padding: 9px !important; font-size: 13px !important; font-weight: 600 !important;
+                border: none !important; border-radius: 10px !important;
+                width: 36px !important; height: 36px !important;
+                padding: 0 !important; font-size: 16px !important;
+                min-height: 36px !important; line-height: 1 !important;
             }
-            div[data-testid="stHorizontalBlock"] { margin-top: -12px !important; gap: 2px !important; }
             </style>
             """, unsafe_allow_html=True)
 
@@ -659,30 +662,30 @@ def page_dashboard():
                 is_mine = str(row.get("user_email","")) == email
                 badge   = f'<span class="badge {"mine" if is_mine else ""}">{row["auteur"]}</span>'
 
-                st.markdown(f"""
-                <div style="background:#fff;border-radius:16px 16px 0 0;
-                     padding:1rem 1.1rem .75rem;margin-bottom:0;
-                     box-shadow:0 2px 14px rgba(0,0,0,.07)">
-                  <div class="tx" style="padding:.1rem 0">
-                    <div class="tx-icon" style="background:{bg}">{icon}</div>
-                    <div class="tx-desc">
-                      <strong>{row['description']}</strong>
-                      <span>{row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']} {badge}</span>
-                    </div>
-                    <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
-                  </div>
-                </div>""", unsafe_allow_html=True)
-
-                col_e, col_d = st.columns(2)
+                # Carte + 2 petits boutons icône sur la même ligne
+                col_card, col_e, col_d = st.columns([10, 1, 1])
+                with col_card:
+                    st.markdown(f"""
+                    <div class="card" style="margin-bottom:0">
+                      <div class="tx" style="padding:.1rem 0">
+                        <div class="tx-icon" style="background:{bg}">{icon}</div>
+                        <div class="tx-desc">
+                          <strong>{row['description']}</strong>
+                          <span>{row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']}</span>
+                          <span>{badge}</span>
+                        </div>
+                        <span class="tx-amt {amt_cls}">{sign}{row['montant']:,.2f} €</span>
+                      </div>
+                    </div>""", unsafe_allow_html=True)
                 with col_e:
                     st.markdown('<div class="btn-modifier">', unsafe_allow_html=True)
-                    if st.button("✏️ Modifier", key=f"e_{tx_id}", use_container_width=True):
+                    if st.button("✏️", key=f"e_{tx_id}"):
                         st.session_state.editing_id = tx_id
                         st.rerun()
                     st.markdown('</div>', unsafe_allow_html=True)
                 with col_d:
                     st.markdown('<div class="btn-supprimer">', unsafe_allow_html=True)
-                    if st.button("🗑 Supprimer", key=f"d_{tx_id}", use_container_width=True):
+                    if st.button("🗑", key=f"d_{tx_id}"):
                         _, fresh_sha = gh_read(BUDGET_FILE)
                         full_df, _   = read_budget_cached()
                         full_df      = full_df[full_df["id"].astype(str) != tx_id]
@@ -690,8 +693,6 @@ def page_dashboard():
                         if ok: st.rerun()
                         else:  st.error(f"Erreur : {err}")
                     st.markdown('</div>', unsafe_allow_html=True)
-
-                st.markdown("<div style='margin-bottom:.75rem'></div>", unsafe_allow_html=True)
 
     # ══ COMPTE ═══════════════════════════════════════
     with tab_account:

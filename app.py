@@ -11,7 +11,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import secrets, base64
+import secrets, base64, json
 from datetime import datetime, date
 from io import StringIO
 import requests
@@ -96,12 +96,15 @@ div[aria-selected="true"] { background:#1A1A1A !important; color:#fff !important
 # ─────────────────────────────────────────────────────
 # 2. CONSTANTES
 # ─────────────────────────────────────────────────────
-BUDGET_FILE = "budget_data.csv"
-USERS_FILE  = "users.csv"
+BUDGET_FILE  = "budget_data.csv"
+USERS_FILE   = "users.csv"
+CATS_FILE    = "categories.json"   # catégories personnalisées persistées sur GitHub
+
 COLS_BUDGET = ["id","user_email","date","description","categorie","type","montant","auteur"]
 COLS_USERS  = ["email","password"]
 
-CATEGORIES = {
+# Catégories par défaut (toujours présentes)
+DEFAULT_CATEGORIES = {
     "🏠 Logement":     ("#F0F0EE", "#1A1A1A"),
     "🛒 Alimentation": ("#FFF0F0", "#D94040"),
     "🚗 Transport":    ("#EEF4FF", "#2563EB"),
@@ -110,9 +113,30 @@ CATEGORIES = {
     "💰 Salaire":      ("#F0FFF4", "#2D6A0F"),
     "📦 Autre":        ("#F8F8F8", "#888"),
 }
+
+# Sous-catégories transport par défaut
+DEFAULT_TRANSPORT_SOUS_CAT = [
+    "🚗 Voiture",
+    "⛽ Carburant",
+    "🅿️ Stationnement",
+    "🚇 Transports en commun",
+    "✈️ Avion",
+    "🚕 Taxi / VTC",
+    "🚲 Vélo",
+    "🛣️ Péage / Autoroute",
+    "🔧 Entretien véhicule",
+]
+
 TYPES    = ["Variable", "Fixe", "Revenu"]
 MONTH_FR = ["Janvier","Février","Mars","Avril","Mai","Juin",
             "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
+
+# Palette de couleurs pour les nouvelles catégories
+PALETTE = [
+    ("#FFF0F8", "#C026D3"), ("#FFF7ED", "#EA580C"), ("#F0F9FF", "#0284C7"),
+    ("#FDF4FF", "#9333EA"), ("#ECFDF5", "#059669"), ("#FFF1F2", "#E11D48"),
+    ("#FFFBEB", "#D97706"), ("#F0FDF4", "#16A34A"), ("#EFF6FF", "#2563EB"),
+]
 
 
 # ─────────────────────────────────────────────────────
@@ -127,48 +151,27 @@ def _headers() -> dict:
 def _url(filename: str) -> str:
     return f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{filename}"
 
-
 def gh_read(filename: str) -> tuple[str, str]:
-    """
-    Lit un fichier sur GitHub.
-    Retourne (contenu_csv, sha) ou ("", "") si absent.
-    Jamais de cache — lecture réseau directe à chaque appel.
-    """
     r = requests.get(_url(filename), headers=_headers(), timeout=10)
     if r.status_code == 200:
         data = r.json()
-        content = base64.b64decode(data["content"]).decode("utf-8")
-        return content, data["sha"]
+        return base64.b64decode(data["content"]).decode("utf-8"), data["sha"]
     return "", ""
 
-
 def gh_write(filename: str, content: str, sha: str, msg: str) -> tuple[bool, str]:
-    """
-    Crée ou met à jour un fichier sur GitHub.
-    Retourne (succès, message_erreur).
-
-    FIX : si le sha est vide mais le fichier existe déjà sur GitHub,
-    on re-lit le sha courant avant d'écrire pour éviter le 409 Conflict.
-    """
-    # Sécurité : si sha vide, on vérifie si le fichier existe déjà
     current_sha = sha
     if not current_sha:
         _, existing_sha = gh_read(filename)
-        current_sha = existing_sha  # sera "" si le fichier n'existe pas encore
-
+        current_sha = existing_sha
     payload: dict = {
         "message": msg,
         "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
     }
     if current_sha:
         payload["sha"] = current_sha
-
     r = requests.put(_url(filename), headers=_headers(), json=payload, timeout=10)
-
     if r.status_code in (200, 201):
         return True, ""
-
-    # Erreur détaillée pour diagnostic
     try:
         detail = r.json().get("message", r.text)
     except Exception:
@@ -177,10 +180,70 @@ def gh_write(filename: str, content: str, sha: str, msg: str) -> tuple[bool, str
 
 
 # ─────────────────────────────────────────────────────
-# 4. ACCÈS AUX DONNÉES
+# 4. CATÉGORIES PERSONNALISÉES (persistées sur GitHub)
+# ─────────────────────────────────────────────────────
+@st.cache_data(ttl=30)
+def read_custom_cats_cached() -> dict:
+    """
+    Lit categories.json depuis GitHub.
+    Structure : {
+      "extra_categories": ["🎮 Gaming", ...],
+      "extra_transport":  ["🛵 Scooter", ...]
+    }
+    """
+    content, _ = gh_read(CATS_FILE)
+    if content.strip():
+        try:
+            return json.loads(content)
+        except Exception:
+            pass
+    return {"extra_categories": [], "extra_transport": []}
+
+
+def save_custom_cats(data: dict) -> tuple[bool, str]:
+    read_custom_cats_cached.clear()
+    _, sha = gh_read(CATS_FILE)
+    return gh_write(CATS_FILE, json.dumps(data, ensure_ascii=False, indent=2), sha,
+                    "update categories")
+
+
+def get_all_categories() -> dict:
+    """Fusionne catégories par défaut + catégories personnalisées."""
+    cats = dict(DEFAULT_CATEGORIES)
+    custom = read_custom_cats_cached()
+    for label in custom.get("extra_categories", []):
+        if label not in cats:
+            idx   = len(cats) % len(PALETTE)
+            bg, c = PALETTE[idx]
+            cats[label] = (bg, c)
+    return cats
+
+
+def get_all_transport_sous_cat() -> list:
+    """Fusionne sous-catégories transport par défaut + personnalisées."""
+    base   = list(DEFAULT_TRANSPORT_SOUS_CAT)
+    custom = read_custom_cats_cached()
+    extra  = custom.get("extra_transport", [])
+    return base + [x for x in extra if x not in base]
+
+
+# ─────────────────────────────────────────────────────
+# 5. HELPERS CATÉGORIE
+# ─────────────────────────────────────────────────────
+def get_cat_style(categorie: str) -> tuple[str, str]:
+    base = categorie.split(" › ")[0] if " › " in categorie else categorie
+    return get_all_categories().get(base, ("#F8F8F8", "#888"))
+
+def get_cat_icon(categorie: str) -> str:
+    if " › " in categorie:
+        return categorie.split(" › ")[1].split(" ")[0]
+    return categorie.split(" ")[0] if categorie else "📦"
+
+
+# ─────────────────────────────────────────────────────
+# 6. ACCÈS AUX DONNÉES BUDGET & USERS
 # ─────────────────────────────────────────────────────
 def read_users() -> tuple[pd.DataFrame, str]:
-    """Lecture directe — pas de cache (critique pour l'auth)."""
     content, sha = gh_read(USERS_FILE)
     if content.strip():
         df = pd.read_csv(StringIO(content))
@@ -188,21 +251,17 @@ def read_users() -> tuple[pd.DataFrame, str]:
             if col not in df.columns:
                 df[col] = ""
         return df, sha
-    # Fichier absent → on le crée avec les bonnes colonnes
     empty = pd.DataFrame(columns=COLS_USERS)
     ok, err = gh_write(USERS_FILE, empty.to_csv(index=False), "", "init users.csv")
     if not ok:
         st.error(f"Impossible de créer users.csv : {err}")
     return empty, ""
 
-
 def write_users(df: pd.DataFrame, sha: str) -> tuple[bool, str]:
     return gh_write(USERS_FILE, df.to_csv(index=False), sha, "update users")
 
-
 @st.cache_data(ttl=10)
 def read_budget_cached() -> tuple[pd.DataFrame, str]:
-    """Lecture budget avec cache court (10 s)."""
     content, sha = gh_read(BUDGET_FILE)
     if content.strip():
         df = pd.read_csv(StringIO(content))
@@ -213,11 +272,9 @@ def read_budget_cached() -> tuple[pd.DataFrame, str]:
         df["montant"] = pd.to_numeric(df["montant"], errors="coerce").fillna(0)
         df = df.dropna(subset=["date"])
         return df, sha
-    # Fichier absent → création
     empty = pd.DataFrame(columns=COLS_BUDGET)
     gh_write(BUDGET_FILE, empty.to_csv(index=False), "", "init budget_data.csv")
     return empty, ""
-
 
 def write_budget(df: pd.DataFrame, sha: str) -> tuple[bool, str]:
     read_budget_cached.clear()
@@ -225,27 +282,22 @@ def write_budget(df: pd.DataFrame, sha: str) -> tuple[bool, str]:
     if "date" in df_save.columns:
         df_save["date"] = df_save["date"].apply(
             lambda x: x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else x)
-    return gh_write(
-        BUDGET_FILE,
-        df_save.reindex(columns=COLS_BUDGET).to_csv(index=False),
-        sha,
-        "update budget_data",
-    )
+    return gh_write(BUDGET_FILE,
+                    df_save.reindex(columns=COLS_BUDGET).to_csv(index=False),
+                    sha, "update budget_data")
 
 
 # ─────────────────────────────────────────────────────
-# 5. AUTH
+# 7. AUTH
 # ─────────────────────────────────────────────────────
 def register(email: str, pwd: str, pwd2: str) -> tuple[bool, str]:
     email = email.strip().lower()
     if "@" not in email:  return False, "Adresse email invalide."
     if len(pwd) < 6:      return False, "Mot de passe trop court (6 car. min.)."
     if pwd != pwd2:       return False, "Les mots de passe ne correspondent pas."
-
     df, sha = read_users()
     if not df.empty and email in df["email"].astype(str).values:
         return False, "Un compte existe déjà avec cet email."
-
     new_row = pd.DataFrame([[email, pwd]], columns=COLS_USERS)
     updated = pd.concat([df, new_row], ignore_index=True)
     ok, err = write_users(updated, sha)
@@ -253,23 +305,20 @@ def register(email: str, pwd: str, pwd2: str) -> tuple[bool, str]:
         return False, f"Erreur GitHub : {err}"
     return True, "Compte créé ! Connectez-vous."
 
-
 def login(email: str, pwd: str) -> tuple[bool, str]:
     email = email.strip().lower()
     df, _ = read_users()
     if df.empty:
         return False, "Identifiants incorrects."
-    match = df[
-        (df["email"].astype(str) == email) &
-        (df["password"].astype(str) == pwd)
-    ]
+    match = df[(df["email"].astype(str) == email) &
+               (df["password"].astype(str) == pwd)]
     if match.empty:
         return False, "Identifiants incorrects."
     return True, "OK"
 
 
 # ─────────────────────────────────────────────────────
-# 6. SESSION
+# 8. SESSION
 # ─────────────────────────────────────────────────────
 for k, v in {"logged_in": False, "user_email": "", "auth_mode": "login"}.items():
     if k not in st.session_state:
@@ -277,7 +326,7 @@ for k, v in {"logged_in": False, "user_email": "", "auth_mode": "login"}.items()
 
 
 # ─────────────────────────────────────────────────────
-# 7. PAGE AUTH
+# 9. PAGE AUTH
 # ─────────────────────────────────────────────────────
 def page_auth():
     st.markdown('<div class="auth-logo"><h1>H&L</h1><p>Votre budget familial</p></div>',
@@ -322,7 +371,7 @@ def page_auth():
 
 
 # ─────────────────────────────────────────────────────
-# 8. PAGE DASHBOARD
+# 10. PAGE DASHBOARD
 # ─────────────────────────────────────────────────────
 def page_dashboard():
     email     = st.session_state.user_email
@@ -344,6 +393,9 @@ def page_dashboard():
     if not df_all.empty and "user_email" in df_all.columns:
         df = df_all[df_all["user_email"] == email].copy()
         df = df.sort_values("date", ascending=False)
+
+    CATEGORIES     = get_all_categories()
+    TRANSPORT_SOUS = get_all_transport_sous_cat()
 
     # ══ DASHBOARD ════════════════════════════════════
     with tab_home:
@@ -374,15 +426,19 @@ def page_dashboard():
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            df_dep = df_m[df_m["type"] != "Revenu"]
+            # Camembert — on regroupe par catégorie de base
+            df_dep = df_m[df_m["type"] != "Revenu"].copy()
             if not df_dep.empty:
+                df_dep["cat_base"] = df_dep["categorie"].apply(
+                    lambda x: x.split(" › ")[0] if " › " in x else x)
                 st.markdown('<div class="sec-label">Répartition des dépenses</div>',
                             unsafe_allow_html=True)
-                totals  = df_dep.groupby("categorie")["montant"].sum().reset_index()
+                totals  = df_dep.groupby("cat_base")["montant"].sum().reset_index()
                 fig_pie = px.pie(
-                    totals, values="montant", names="categorie", hole=0.45,
+                    totals, values="montant", names="cat_base", hole=0.45,
                     color_discrete_sequence=["#1A1A1A","#D94040","#2563EB",
-                                             "#2D6A0F","#A16207","#888"])
+                                             "#2D6A0F","#A16207","#888",
+                                             "#C026D3","#EA580C","#0284C7"])
                 fig_pie.update_traces(textposition="inside", textinfo="percent+label",
                                       textfont_size=11)
                 fig_pie.update_layout(showlegend=False, height=260,
@@ -415,8 +471,8 @@ def page_dashboard():
             html = '<div class="card">'
             for _, row in df.head(5).iterrows():
                 is_rev  = row["type"] == "Revenu"
-                bg, _   = CATEGORIES.get(row["categorie"], ("#F8F8F8","#888"))
-                icon    = row["categorie"].split(" ")[0]
+                bg, _   = get_cat_style(row["categorie"])
+                icon    = get_cat_icon(row["categorie"])
                 amt_cls = "green" if is_rev else "red"
                 sign    = "+" if is_rev else "−"
                 html   += f"""
@@ -434,29 +490,73 @@ def page_dashboard():
     # ══ AJOUTER ══════════════════════════════════════
     with tab_add:
         st.markdown("### Nouvelle opération")
+
         with st.form("fa", clear_on_submit=True):
-            desc = st.text_input("Description", placeholder="Ex : Courses Leclerc")
-            mt   = st.number_input("Montant (€)", min_value=0.01, step=0.01, format="%.2f")
-            cat  = st.selectbox("Catégorie", list(CATEGORIES.keys()))
-            tp   = st.selectbox("Type", TYPES)
-            dt   = st.date_input("Date", value=date.today())
-            sub  = st.form_submit_button("Enregistrer ✓")
+            desc     = st.text_input("Description", placeholder="Ex : Courses Leclerc")
+            mt       = st.number_input("Montant (€)", min_value=0.01, step=0.01, format="%.2f")
+
+            cat_opts = list(CATEGORIES.keys())
+            cat      = st.selectbox("Catégorie", cat_opts)
+
+            # ── Sous-catégorie Transport ──
+            sous_cat = None
+            if cat == "🚗 Transport":
+                sc_opts  = TRANSPORT_SOUS + ["➕ Ajouter une sous-catégorie..."]
+                sc_sel   = st.selectbox("Sous-catégorie", sc_opts)
+                if sc_sel == "➕ Ajouter une sous-catégorie...":
+                    sous_cat = st.text_input("Nouvelle sous-catégorie transport",
+                                             placeholder="Ex: 🛵 Scooter")
+                else:
+                    sous_cat = sc_sel
+
+            # ── Nouvelle catégorie si "Autre" ──
+            nouvelle_cat = None
+            if cat == "📦 Autre":
+                nouvelle_cat = st.text_input("Nom de la nouvelle catégorie",
+                                             placeholder="Ex: 🐾 Animaux")
+                st.caption("Elle sera sauvegardée et disponible pour tous les futurs ajouts.")
+
+            tp  = st.selectbox("Type", TYPES)
+            dt  = st.date_input("Date", value=date.today())
+            sub = st.form_submit_button("Enregistrer ✓")
 
         if sub:
             if not desc.strip():
                 st.warning("Veuillez saisir une description.")
             else:
-                # Re-lit le sha le plus frais avant d'écrire
+                # ── Sauvegarde nouvelle catégorie ──
+                cat_finale = cat
+                if cat == "📦 Autre" and nouvelle_cat and nouvelle_cat.strip():
+                    nouvelle_cat = nouvelle_cat.strip()
+                    custom_data  = read_custom_cats_cached()
+                    if nouvelle_cat not in custom_data["extra_categories"]:
+                        custom_data["extra_categories"].append(nouvelle_cat)
+                        ok_c, err_c = save_custom_cats(custom_data)
+                        if not ok_c:
+                            st.error(f"Erreur sauvegarde catégorie : {err_c}")
+                    cat_finale = nouvelle_cat
+
+                # ── Sauvegarde nouvelle sous-catégorie transport ──
+                if cat == "🚗 Transport" and sous_cat:
+                    if sous_cat.strip() and sous_cat not in DEFAULT_TRANSPORT_SOUS_CAT:
+                        custom_data = read_custom_cats_cached()
+                        if sous_cat not in custom_data.get("extra_transport", []):
+                            custom_data.setdefault("extra_transport", []).append(sous_cat)
+                            save_custom_cats(custom_data)
+                    cat_finale = f"🚗 Transport › {sous_cat}" if sous_cat else "🚗 Transport"
+
+                # ── Sauvegarde transaction ──
                 full_df, sha = read_budget_cached()
                 _, fresh_sha = gh_read(BUDGET_FILE)
                 if fresh_sha:
                     sha = fresh_sha
+
                 new_row = pd.DataFrame([{
                     "id":          secrets.token_hex(8),
                     "user_email":  email,
                     "date":        dt.strftime("%Y-%m-%d"),
                     "description": desc.strip(),
-                    "categorie":   cat,
+                    "categorie":   cat_finale,
                     "type":        tp,
                     "montant":     mt,
                     "auteur":      email.split("@")[0],
@@ -473,14 +573,21 @@ def page_dashboard():
         if df.empty:
             st.info("Aucune transaction enregistrée.")
         else:
-            cats = ["Toutes"] + sorted(df["categorie"].dropna().unique().tolist())
-            sel  = st.selectbox("Filtrer", cats, label_visibility="collapsed")
-            df_f = df if sel == "Toutes" else df[df["categorie"] == sel]
+            # Filtre — inclut les sous-catégories transport sous leur parent
+            all_cats_hist = ["Toutes"] + sorted(
+                set(c.split(" › ")[0] if " › " in c else c
+                    for c in df["categorie"].dropna().unique()))
+            sel  = st.selectbox("Filtrer", all_cats_hist, label_visibility="collapsed")
+            if sel == "Toutes":
+                df_f = df
+            else:
+                df_f = df[df["categorie"].apply(
+                    lambda x: (x.split(" › ")[0] if " › " in x else x) == sel)]
 
             for _, row in df_f.iterrows():
                 is_rev  = row["type"] == "Revenu"
-                bg, _   = CATEGORIES.get(row["categorie"], ("#F8F8F8","#888"))
-                icon    = row["categorie"].split(" ")[0]
+                bg, _   = get_cat_style(row["categorie"])
+                icon    = get_cat_icon(row["categorie"])
                 amt_cls = "green" if is_rev else "red"
                 sign    = "+" if is_rev else "−"
                 tx_id   = str(row["id"])
@@ -519,6 +626,7 @@ def page_dashboard():
             <div style="font-size:12px;color:#aaa;margin-top:4px">Compte actif</div>
         </div>""", unsafe_allow_html=True)
 
+        # Identifiants en clair
         df_u, _ = read_users()
         if not df_u.empty:
             row_u = df_u[df_u["email"].astype(str) == email]
@@ -541,6 +649,44 @@ def page_dashboard():
                         </div>
                     </div>""", unsafe_allow_html=True)
 
+        # Gestion des catégories personnalisées
+        with st.expander("🗂 Gérer mes catégories personnalisées"):
+            custom_data = read_custom_cats_cached()
+
+            st.markdown('<div class="sec-label">Catégories</div>', unsafe_allow_html=True)
+            extra_cats = custom_data.get("extra_categories", [])
+            if extra_cats:
+                for i, c in enumerate(extra_cats):
+                    col_c, col_x = st.columns([5, 1])
+                    with col_c:
+                        st.markdown(f"<div style='padding:6px 0;font-size:14px'>{c}</div>",
+                                    unsafe_allow_html=True)
+                    with col_x:
+                        if st.button("🗑", key=f"delcat_{i}"):
+                            custom_data["extra_categories"].pop(i)
+                            save_custom_cats(custom_data)
+                            st.rerun()
+            else:
+                st.caption("Aucune catégorie personnalisée.")
+
+            st.markdown('<div class="sec-label">Sous-catégories Transport</div>',
+                        unsafe_allow_html=True)
+            extra_trans = custom_data.get("extra_transport", [])
+            if extra_trans:
+                for i, c in enumerate(extra_trans):
+                    col_c, col_x = st.columns([5, 1])
+                    with col_c:
+                        st.markdown(f"<div style='padding:6px 0;font-size:14px'>{c}</div>",
+                                    unsafe_allow_html=True)
+                    with col_x:
+                        if st.button("🗑", key=f"deltrans_{i}"):
+                            custom_data["extra_transport"].pop(i)
+                            save_custom_cats(custom_data)
+                            st.rerun()
+            else:
+                st.caption("Aucune sous-catégorie personnalisée.")
+
+        # Stats globales
         if not df.empty:
             st.markdown('<div class="sec-label">Statistiques globales</div>',
                         unsafe_allow_html=True)
@@ -571,7 +717,7 @@ def page_dashboard():
 
 
 # ─────────────────────────────────────────────────────
-# 9. ROUTAGE
+# 11. ROUTAGE
 # ─────────────────────────────────────────────────────
 if st.session_state.logged_in:
     page_dashboard()

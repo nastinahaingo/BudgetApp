@@ -118,6 +118,7 @@ DEFAULT_CATEGORIES = {
     "💰 Salaire":      ("#F0FFF4", "#2D6A0F"),
     "💵 Epargne":      ("#F0FFF4", "#2D6A0F"),
     "📦 Autre":        ("#F8F8F8", "#888"),
+    "🍔 Restauration":        ("#F8F8F8", "#888"),
 }
 
 DEFAULT_TRANSPORT_SOUS_CAT = [
@@ -217,6 +218,8 @@ CAT_ALIASES = {
     "loyer":         "🏠 Logement",
     "maison":        "🏠 Logement",
     "alimentation":  "🛒 Alimentation",
+    "restauration":  "🍔 Restauration", 
+    "restaurant":    "🍔 Restauration", 
     "courses":       "🛒 Alimentation",
     "nourriture":    "🛒 Alimentation",
     "food":          "🛒 Alimentation",

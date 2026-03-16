@@ -419,12 +419,54 @@ def page_dashboard():
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            df_dep = df_m[df_m["type"] != "Revenu"].copy()
-            if not df_dep.empty:
-                df_dep["cat_base"] = df_dep["categorie"].apply(get_cat_base)
-                st.markdown('<div class="sec-label">Répartition des dépenses</div>',
-                            unsafe_allow_html=True)
-                totals  = df_dep.groupby("cat_base")["montant"].sum().reset_index()
+            # ── Filtres globaux (camembert + évolution) ───────────────
+            with st.expander("🔍 Filtres graphiques", expanded=True):
+                fa1, fa2 = st.columns(2)
+                with fa1:
+                    date_debut = st.date_input("Du", value=date(now.year, 1, 1), key="g_date_debut")
+                with fa2:
+                    date_fin = st.date_input("Au", value=date.today(), key="g_date_fin")
+
+                fb1, fb2 = st.columns(2)
+                with fb1:
+                    sel_g_type = st.selectbox("Type", ["Tous"] + TYPES, key="g_type")
+                with fb2:
+                    cats_graph_opts = ["Toutes"] + sorted(set(
+                        get_cat_base(c) for c in df["categorie"].dropna().unique()))
+                    sel_g_cat = st.selectbox("Catégorie", cats_graph_opts, key="g_cat")
+
+                fc1, fc2 = st.columns(2)
+                with fc1:
+                    auteurs_graph = ["Tous"] + sorted(df["auteur"].dropna().unique().tolist())
+                    sel_g_auteur = st.selectbox("Auteur", auteurs_graph, key="g_auteur")
+                with fc2:
+                    periode_label = st.selectbox(
+                        "Granularité", ["Jour", "Semaine", "Mois", "Année"],
+                        index=2, key="chart_period")
+
+                affichage_label = st.selectbox(
+                    "Affichage évolution", ["Dépenses", "Revenus", "Les deux"],
+                    index=0, key="chart_display")
+
+            # Application des filtres
+            df_graph = df.copy()
+            df_graph = df_graph[
+                (df_graph["date"].dt.date >= date_debut) &
+                (df_graph["date"].dt.date <= date_fin)
+            ]
+            if sel_g_type != "Tous":
+                df_graph = df_graph[df_graph["type"] == sel_g_type]
+            if sel_g_cat != "Toutes":
+                df_graph = df_graph[df_graph["categorie"].apply(get_cat_base) == sel_g_cat]
+            if sel_g_auteur != "Tous":
+                df_graph = df_graph[df_graph["auteur"] == sel_g_auteur]
+
+            # ── Camembert ─────────────────────────────────────────────
+            df_pie = df_graph[df_graph["type"] != "Revenu"].copy()
+            if not df_pie.empty:
+                df_pie["cat_base"] = df_pie["categorie"].apply(get_cat_base)
+                st.markdown('<div class="sec-label">Répartition</div>', unsafe_allow_html=True)
+                totals  = df_pie.groupby("cat_base")["montant"].sum().reset_index()
                 fig_pie = px.pie(totals, values="montant", names="cat_base", hole=0.45,
                                  color_discrete_sequence=["#1A1A1A","#D94040","#2563EB",
                                                           "#2D6A0F","#A16207","#888",
@@ -436,22 +478,8 @@ def page_dashboard():
                                       margin=dict(t=10,b=10,l=10,r=10))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
+            # ── Graphe d'évolution ────────────────────────────────────
             st.markdown('<div class="sec-label">Évolution</div>', unsafe_allow_html=True)
-
-            gc1, gc2, gc3 = st.columns([2, 2, 3])
-            with gc1:
-                periode_label = st.selectbox(
-                    "Période", ["Jour", "Semaine", "Mois", "Année"],
-                    index=2, key="chart_period", label_visibility="collapsed")
-            with gc2:
-                affichage_label = st.selectbox(
-                    "Affichage", ["Dépenses", "Revenus", "Les deux"],
-                    index=0, key="chart_display", label_visibility="collapsed")
-            with gc3:
-                cats_graph = ["Toutes"] + sorted(set(
-                    get_cat_base(c) for c in df["categorie"].dropna().unique()))
-                sel_cat_graph = st.selectbox(
-                    "Catégorie", cats_graph, key="chart_cat", label_visibility="collapsed")
 
             periode_map = {
                 "Jour":    ("D",  "%d/%m"),
@@ -460,11 +488,7 @@ def page_dashboard():
                 "Année":   ("YE", "%Y"),
             }
             resample_rule, tick_fmt = periode_map[periode_label]
-            n_periods = {"Jour": 30, "Semaine": 12, "Mois": 12, "Année": 5}[periode_label]
-
-            df_graph = df.copy()
-            if sel_cat_graph != "Toutes":
-                df_graph = df_graph[df_graph["categorie"].apply(get_cat_base) == sel_cat_graph]
+            n_periods = {"Jour": 90, "Semaine": 26, "Mois": 24, "Année": 10}[periode_label]
 
             fig_line = go.Figure()
 
@@ -500,17 +524,20 @@ def page_dashboard():
                         fillcolor="rgba(45,106,15,0.07)",
                     ))
 
-            fig_line.update_layout(
-                height=220,
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                margin=dict(t=10, b=10, l=10, r=10),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                            xanchor="right", x=1, font=dict(size=11)),
-                xaxis=dict(showgrid=False, tickformat=tick_fmt, zeroline=False),
-                yaxis=dict(showgrid=True, gridcolor="#F0F0F0", zeroline=False,
-                           ticksuffix=" €"),
-            )
-            st.plotly_chart(fig_line, use_container_width=True)
+            if fig_line.data:
+                fig_line.update_layout(
+                    height=220,
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    margin=dict(t=10, b=10, l=10, r=10),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                xanchor="right", x=1, font=dict(size=11)),
+                    xaxis=dict(showgrid=False, tickformat=tick_fmt, zeroline=False),
+                    yaxis=dict(showgrid=True, gridcolor="#F0F0F0", zeroline=False,
+                               ticksuffix=" €"),
+                )
+                st.plotly_chart(fig_line, use_container_width=True)
+            else:
+                st.caption("Aucune donnée pour ces filtres.")
 
             st.markdown('<div class="sec-label">Dernières opérations</div>',
                         unsafe_allow_html=True)

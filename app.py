@@ -462,22 +462,85 @@ def page_dashboard():
                                       margin=dict(t=10,b=10,l=10,r=10))
                 st.plotly_chart(fig_pie, use_container_width=True)
 
-            st.markdown('<div class="sec-label">Évolution des dépenses (6 mois)</div>',
-                        unsafe_allow_html=True)
-            trend = (df[df["type"] != "Revenu"]
-                     .set_index("date").resample("ME")["montant"]
-                     .sum().reset_index().tail(6))
-            fig_line = go.Figure(go.Scatter(
-                x=trend["date"], y=trend["montant"], mode="lines+markers",
-                line=dict(color="#1A1A1A", width=2.5),
-                marker=dict(size=7, color="#1A1A1A"),
-                fill="tozeroy", fillcolor="rgba(26,26,26,0.07)",
-            ))
+            st.markdown('<div class="sec-label">Évolution</div>', unsafe_allow_html=True)
+
+            # ── Contrôles du graphe ──
+            gc1, gc2, gc3 = st.columns([2, 2, 3])
+            with gc1:
+                periode_label = st.selectbox(
+                    "Période", ["Jour", "Semaine", "Mois", "Année"],
+                    index=2, key="chart_period", label_visibility="collapsed")
+            with gc2:
+                affichage_label = st.selectbox(
+                    "Affichage", ["Dépenses", "Revenus", "Les deux"],
+                    index=0, key="chart_display", label_visibility="collapsed")
+            with gc3:
+                # Filtre catégorie (toutes les catégories présentes dans les données)
+                cats_graph = ["Toutes"] + sorted(set(
+                    get_cat_base(c) for c in df["categorie"].dropna().unique()))
+                sel_cat_graph = st.selectbox(
+                    "Catégorie", cats_graph, key="chart_cat", label_visibility="collapsed")
+
+            # Mapping période → resample rule + tickformat
+            periode_map = {
+                "Jour":    ("D",  "%d/%m"),
+                "Semaine": ("W",  "S%W %b"),
+                "Mois":    ("ME", "%b %Y"),
+                "Année":   ("YE", "%Y"),
+            }
+            resample_rule, tick_fmt = periode_map[periode_label]
+
+            # Nbre de périodes à afficher selon la granularité
+            n_periods = {"Jour": 30, "Semaine": 12, "Mois": 12, "Année": 5}[periode_label]
+
+            # Prépare le df selon le filtre catégorie
+            df_graph = df.copy()
+            if sel_cat_graph != "Toutes":
+                df_graph = df_graph[df_graph["categorie"].apply(get_cat_base) == sel_cat_graph]
+
+            fig_line = go.Figure()
+
+            if affichage_label in ("Dépenses", "Les deux"):
+                dep_trend = (
+                    df_graph[df_graph["type"] != "Revenu"]
+                    .set_index("date").resample(resample_rule)["montant"]
+                    .sum().reset_index().tail(n_periods)
+                )
+                if not dep_trend.empty:
+                    fig_line.add_trace(go.Scatter(
+                        x=dep_trend["date"], y=dep_trend["montant"],
+                        name="Dépenses", mode="lines+markers",
+                        line=dict(color="#D94040", width=2.5),
+                        marker=dict(size=6, color="#D94040"),
+                        fill="tozeroy" if affichage_label == "Dépenses" else "none",
+                        fillcolor="rgba(217,64,64,0.07)",
+                    ))
+
+            if affichage_label in ("Revenus", "Les deux"):
+                rev_trend = (
+                    df_graph[df_graph["type"] == "Revenu"]
+                    .set_index("date").resample(resample_rule)["montant"]
+                    .sum().reset_index().tail(n_periods)
+                )
+                if not rev_trend.empty:
+                    fig_line.add_trace(go.Scatter(
+                        x=rev_trend["date"], y=rev_trend["montant"],
+                        name="Revenus", mode="lines+markers",
+                        line=dict(color="#2D6A0F", width=2.5),
+                        marker=dict(size=6, color="#2D6A0F"),
+                        fill="tozeroy" if affichage_label == "Revenus" else "none",
+                        fillcolor="rgba(45,106,15,0.07)",
+                    ))
+
             fig_line.update_layout(
-                height=190, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                margin=dict(t=10,b=10,l=10,r=10),
-                xaxis=dict(showgrid=False, tickformat="%b", zeroline=False),
-                yaxis=dict(showgrid=True, gridcolor="#F0F0F0", zeroline=False),
+                height=220,
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(t=10, b=10, l=10, r=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="right", x=1, font=dict(size=11)),
+                xaxis=dict(showgrid=False, tickformat=tick_fmt, zeroline=False),
+                yaxis=dict(showgrid=True, gridcolor="#F0F0F0", zeroline=False,
+                           ticksuffix=" €"),
             )
             st.plotly_chart(fig_line, use_container_width=True)
 

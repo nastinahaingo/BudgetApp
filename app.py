@@ -674,25 +674,25 @@ def page_dashboard():
                 margin: 0 !important;
             }
             .btn-modifier button {
-                background: #F5F4F0 !important;
+                background: #F0F0EE !important;
                 color: #555 !important;
                 border: none !important;
-                border-radius: 10px !important;
-                font-size: 18px !important;
-                min-height: 38px !important;
-                height: 38px !important;
+                border-radius: 8px !important;
+                font-size: 15px !important;
+                min-height: 30px !important;
+                height: 30px !important;
                 width: 100% !important;
                 padding: 0 !important;
                 line-height: 1 !important;
             }
             .btn-supprimer button {
-                background: #FFF0F0 !important;
+                background: #FEE8E8 !important;
                 color: #D94040 !important;
                 border: none !important;
-                border-radius: 10px !important;
-                font-size: 18px !important;
-                min-height: 38px !important;
-                height: 38px !important;
+                border-radius: 8px !important;
+                font-size: 15px !important;
+                min-height: 30px !important;
+                height: 30px !important;
                 width: 100% !important;
                 padding: 0 !important;
                 line-height: 1 !important;
@@ -711,80 +711,68 @@ def page_dashboard():
                 badge   = f'<span class="badge {"mine" if is_mine else ""}">{row["auteur"]}</span>'
                 is_editing_this = st.session_state.editing_id == tx_id
 
-                # ── Carte 100% Streamlit colonnes — boutons inline à droite ──
-                with st.container():
-                    st.markdown("""
-                    <style>
-                    [data-testid="stVerticalBlockBorderWrapper"] {
-                        background: #fff;
-                        border-radius: 16px !important;
-                        box-shadow: 0 2px 14px rgba(0,0,0,.07) !important;
-                        padding: 0 !important;
-                        margin-bottom: .65rem !important;
-                    }
-                    .tx-row-btn button {
-                        background: transparent !important;
-                        border: none !important;
-                        font-size: 16px !important;
-                        padding: 2px 6px !important;
-                        min-height: 28px !important;
-                        height: 28px !important;
-                        width: 28px !important;
-                        border-radius: 8px !important;
-                        line-height: 1 !important;
-                        color: #aaa !important;
-                    }
-                    .tx-row-btn button:hover { background: #F5F4F0 !important; color: #1A1A1A !important; }
-                    .tx-row-btn-del button { color: #D94040 !important; }
-                    .tx-row-btn-del button:hover { background: #FFF0F0 !important; }
-                    </style>
-                    """, unsafe_allow_html=True)
+                # ── Carte HTML complète avec boutons intégrés via lien ──
+                # On utilise des st.button invisibles alignés sur la carte HTML
+                amt_color = "#2D6A0F" if is_rev else "#D94040"
+                lbl = "✕" if is_editing_this else "✏️"
 
-                    col_info, col_amt, col_edit, col_del = st.columns([7, 3, 1, 1])
-                    with col_info:
-                        st.markdown(f"""
-                        <div style="padding:.75rem 0 .75rem 1rem">
-                          <div style="display:flex;align-items:center;gap:10px">
-                            <div style="width:34px;height:34px;border-radius:10px;
-                                 background:{bg};display:flex;align-items:center;
-                                 justify-content:center;font-size:17px;flex-shrink:0">{icon}</div>
-                            <div style="min-width:0">
-                              <div style="font-size:13px;font-weight:600;color:#1A1A1A;
-                                   white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                                   {row['description']}</div>
-                              <div style="font-size:11px;color:#bbb;margin-top:1px">
-                                {row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']}
-                                {badge}
-                              </div>
-                            </div>
-                          </div>
-                        </div>""", unsafe_allow_html=True)
-                    with col_amt:
-                        st.markdown(f"""
-                        <div style="display:flex;align-items:center;justify-content:flex-end;
-                             height:100%;padding-right:.5rem">
-                          <span style="font-size:14px;font-weight:800;
-                            color:{"#2D6A0F" if is_rev else "#D94040"}">
-                            {sign}{row['montant']:,.2f} €
-                          </span>
-                        </div>""", unsafe_allow_html=True)
-                    with col_edit:
-                        st.markdown('<div class="tx-row-btn">', unsafe_allow_html=True)
-                        lbl = "✕" if is_editing_this else "✏️"
-                        if st.button(lbl, key=f"e_{tx_id}"):
-                            st.session_state.editing_id = None if is_editing_this else tx_id
-                            st.rerun()
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    with col_del:
-                        st.markdown('<div class="tx-row-btn tx-row-btn-del">', unsafe_allow_html=True)
-                        if st.button("🗑", key=f"d_{tx_id}"):
-                            _, fresh_sha = gh_read(BUDGET_FILE)
-                            full_df, _   = read_budget_cached()
-                            full_df      = full_df[full_df["id"].astype(str) != tx_id]
-                            ok, err      = write_budget(full_df, fresh_sha or _)
-                            if ok: st.rerun()
-                            else:  st.error(f"Erreur : {err}")
-                        st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown(f"""
+                <div style="background:#fff;border-radius:16px;
+                     padding:.75rem 1rem .75rem;
+                     margin-bottom:.1rem;
+                     box-shadow:0 2px 14px rgba(0,0,0,.07);
+                     display:flex;align-items:center;gap:10px">
+                  <div style="width:36px;height:36px;border-radius:10px;background:{bg};
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:18px;flex-shrink:0">{icon}</div>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;color:#1A1A1A;
+                         white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                      {row['description']}</div>
+                    <div style="font-size:11px;color:#bbb;margin-top:2px">
+                      {row['date'].strftime('%d/%m/%Y')} · {row['categorie']} · {row['type']}
+                      {badge}</div>
+                  </div>
+                  <div style="font-size:14px;font-weight:800;color:{amt_color};
+                       white-space:nowrap;margin-right:8px">
+                    {sign}{row['montant']:,.2f} €</div>
+                  <div style="display:flex;gap:4px;flex-shrink:0" id="btns_{tx_id}">
+                    <span style="width:30px;height:30px"></span>
+                    <span style="width:30px;height:30px"></span>
+                  </div>
+                </div>""", unsafe_allow_html=True)
+
+                # CSS pour rendre les boutons Streamlit transparents et compacts
+                st.markdown(f"""
+                <style>
+                [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] #e_{tx_id}) {{
+                    position: relative;
+                    margin-top: -44px !important;
+                    margin-bottom: 0 !important;
+                    background: transparent !important;
+                    pointer-events: none;
+                }}
+                </style>""", unsafe_allow_html=True)
+
+                col_spacer, col_e, col_d = st.columns([10, 1, 1])
+                with col_spacer:
+                    st.markdown("")
+                with col_e:
+                    st.markdown('<div class="btn-modifier">', unsafe_allow_html=True)
+                    if st.button(lbl, key=f"e_{tx_id}", use_container_width=True):
+                        st.session_state.editing_id = None if is_editing_this else tx_id
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+                with col_d:
+                    st.markdown('<div class="btn-supprimer">', unsafe_allow_html=True)
+                    if st.button("🗑", key=f"d_{tx_id}", use_container_width=True):
+                        _, fresh_sha = gh_read(BUDGET_FILE)
+                        full_df, _   = read_budget_cached()
+                        full_df      = full_df[full_df["id"].astype(str) != tx_id]
+                        ok, err      = write_budget(full_df, fresh_sha or _)
+                        if ok: st.rerun()
+                        else:  st.error(f"Erreur : {err}")
+                    st.markdown('</div>', unsafe_allow_html=True)
 
                 # ── Bloc modifier inline — s'ouvre sous la carte ──
                 if is_editing_this:

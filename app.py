@@ -756,41 +756,47 @@ def page_dashboard():
                 margin: 0 !important;
             }
             /* Bouton modifier — fond orange clair, icône crayon */
+            .btn-modifier > div > button,
             .btn-modifier button {
                 background: #FFF3E0 !important;
                 color: #E65100 !important;
                 border: none !important;
                 border-radius: 10px !important;
-                font-size: 16px !important;
-                min-height: 34px !important;
-                height: 34px !important;
-                width: 34px !important;
+                font-size: 18px !important;
+                min-height: 42px !important;
+                height: 42px !important;
+                width: 42px !important;
                 padding: 0 !important;
-                line-height: 1 !important;
+                line-height: 42px !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
+                text-align: center !important;
             }
+            .btn-modifier > div > button:hover,
             .btn-modifier button:hover {
                 background: #FFE0B2 !important;
                 opacity: 1 !important;
             }
             /* Bouton supprimer — fond gris clair, icône poubelle */
+            .btn-supprimer > div > button,
             .btn-supprimer button {
                 background: #F5F5F5 !important;
-                color: #9E9E9E !important;
+                color: #757575 !important;
                 border: none !important;
                 border-radius: 10px !important;
-                font-size: 16px !important;
-                min-height: 34px !important;
-                height: 34px !important;
-                width: 34px !important;
+                font-size: 18px !important;
+                min-height: 42px !important;
+                height: 42px !important;
+                width: 42px !important;
                 padding: 0 !important;
-                line-height: 1 !important;
+                line-height: 42px !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
+                text-align: center !important;
             }
+            .btn-supprimer > div > button:hover,
             .btn-supprimer button:hover {
                 background: #FFEBEE !important;
                 color: #D94040 !important;

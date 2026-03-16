@@ -115,56 +115,71 @@ MONTH_FR = ["Janvier","Février","Mars","Avril","Mai","Juin",
 
 
 # ─────────────────────────────────────────────────────
-# 3. GITHUB — LECTURE / ÉCRITURE
+# 3. GITHUB — COUCHE RÉSEAU
 # ─────────────────────────────────────────────────────
-def _gh_headers() -> dict:
+def _headers() -> dict:
     return {
         "Authorization": f"token {st.secrets['GITHUB_TOKEN']}",
         "Accept": "application/vnd.github.v3+json",
     }
 
-def _gh_base() -> str:
-    return f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents"
+def _url(filename: str) -> str:
+    return f"https://api.github.com/repos/{st.secrets['GITHUB_REPO']}/contents/{filename}"
 
 
 def gh_read(filename: str) -> tuple[str, str]:
-    """Lit un fichier GitHub — TOUJOURS depuis le réseau, sans cache."""
-    r = requests.get(
-        f"{_gh_base()}/{filename}",
-        headers=_gh_headers(),
-        params={"ref": "main"},   # force bypass du cache GitHub
-        timeout=10,
-    )
+    """
+    Lit un fichier sur GitHub.
+    Retourne (contenu_csv, sha) ou ("", "") si absent.
+    Jamais de cache — lecture réseau directe à chaque appel.
+    """
+    r = requests.get(_url(filename), headers=_headers(), timeout=10)
     if r.status_code == 200:
         data = r.json()
-        return base64.b64decode(data["content"]).decode("utf-8"), data["sha"]
+        content = base64.b64decode(data["content"]).decode("utf-8")
+        return content, data["sha"]
     return "", ""
 
 
-def gh_write(filename: str, content: str, sha: str, msg: str) -> bool:
-    """Écrit un fichier sur GitHub."""
-    payload = {
+def gh_write(filename: str, content: str, sha: str, msg: str) -> tuple[bool, str]:
+    """
+    Crée ou met à jour un fichier sur GitHub.
+    Retourne (succès, message_erreur).
+
+    FIX : si le sha est vide mais le fichier existe déjà sur GitHub,
+    on re-lit le sha courant avant d'écrire pour éviter le 409 Conflict.
+    """
+    # Sécurité : si sha vide, on vérifie si le fichier existe déjà
+    current_sha = sha
+    if not current_sha:
+        _, existing_sha = gh_read(filename)
+        current_sha = existing_sha  # sera "" si le fichier n'existe pas encore
+
+    payload: dict = {
         "message": msg,
         "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
     }
-    if sha:
-        payload["sha"] = sha
-    r = requests.put(
-        f"{_gh_base()}/{filename}",
-        headers=_gh_headers(),
-        json=payload,
-        timeout=10,
-    )
-    return r.status_code in (200, 201)
+    if current_sha:
+        payload["sha"] = current_sha
+
+    r = requests.put(_url(filename), headers=_headers(), json=payload, timeout=10)
+
+    if r.status_code in (200, 201):
+        return True, ""
+
+    # Erreur détaillée pour diagnostic
+    try:
+        detail = r.json().get("message", r.text)
+    except Exception:
+        detail = r.text
+    return False, f"GitHub {r.status_code} : {detail}"
 
 
 # ─────────────────────────────────────────────────────
 # 4. ACCÈS AUX DONNÉES
-# FIX : on ne cache PAS les lectures auth (users).
-# On cache uniquement le budget avec un TTL court.
 # ─────────────────────────────────────────────────────
 def read_users() -> tuple[pd.DataFrame, str]:
-    """Lecture directe GitHub — pas de cache pour garantir la fraîcheur."""
+    """Lecture directe — pas de cache (critique pour l'auth)."""
     content, sha = gh_read(USERS_FILE)
     if content.strip():
         df = pd.read_csv(StringIO(content))
@@ -172,14 +187,16 @@ def read_users() -> tuple[pd.DataFrame, str]:
             if col not in df.columns:
                 df[col] = ""
         return df, sha
-    # Fichier absent → on le crée
+    # Fichier absent → on le crée avec les bonnes colonnes
     empty = pd.DataFrame(columns=COLS_USERS)
-    gh_write(USERS_FILE, empty.to_csv(index=False), "", "init users.csv")
+    ok, err = gh_write(USERS_FILE, empty.to_csv(index=False), "", "init users.csv")
+    if not ok:
+        st.error(f"Impossible de créer users.csv : {err}")
     return empty, ""
 
 
-def write_users(df: pd.DataFrame, sha: str) -> None:
-    gh_write(USERS_FILE, df.to_csv(index=False), sha, "update users")
+def write_users(df: pd.DataFrame, sha: str) -> tuple[bool, str]:
+    return gh_write(USERS_FILE, df.to_csv(index=False), sha, "update users")
 
 
 @st.cache_data(ttl=10)
@@ -195,19 +212,24 @@ def read_budget_cached() -> tuple[pd.DataFrame, str]:
         df["montant"] = pd.to_numeric(df["montant"], errors="coerce").fillna(0)
         df = df.dropna(subset=["date"])
         return df, sha
+    # Fichier absent → création
     empty = pd.DataFrame(columns=COLS_BUDGET)
     gh_write(BUDGET_FILE, empty.to_csv(index=False), "", "init budget_data.csv")
     return empty, ""
 
 
-def write_budget(df: pd.DataFrame, sha: str) -> None:
+def write_budget(df: pd.DataFrame, sha: str) -> tuple[bool, str]:
     read_budget_cached.clear()
     df_save = df.copy()
     if "date" in df_save.columns:
         df_save["date"] = df_save["date"].apply(
             lambda x: x.strftime("%Y-%m-%d") if hasattr(x, "strftime") else x)
-    gh_write(BUDGET_FILE, df_save.reindex(columns=COLS_BUDGET).to_csv(index=False),
-             sha, "update budget_data")
+    return gh_write(
+        BUDGET_FILE,
+        df_save.reindex(columns=COLS_BUDGET).to_csv(index=False),
+        sha,
+        "update budget_data",
+    )
 
 
 # ─────────────────────────────────────────────────────
@@ -219,25 +241,27 @@ def register(email: str, pwd: str, pwd2: str) -> tuple[bool, str]:
     if len(pwd) < 6:      return False, "Mot de passe trop court (6 car. min.)."
     if pwd != pwd2:       return False, "Les mots de passe ne correspondent pas."
 
-    df, sha = read_users()   # lecture fraîche GitHub
+    df, sha = read_users()
     if not df.empty and email in df["email"].astype(str).values:
         return False, "Un compte existe déjà avec cet email."
 
     new_row = pd.DataFrame([[email, pwd]], columns=COLS_USERS)
     updated = pd.concat([df, new_row], ignore_index=True)
-    ok = gh_write(USERS_FILE, updated.to_csv(index=False), sha, f"register {email}")
+    ok, err = write_users(updated, sha)
     if not ok:
-        return False, "Erreur lors de la sauvegarde. Réessayez."
+        return False, f"Erreur GitHub : {err}"
     return True, "Compte créé ! Connectez-vous."
 
 
 def login(email: str, pwd: str) -> tuple[bool, str]:
     email = email.strip().lower()
-    df, _ = read_users()   # lecture fraîche GitHub
+    df, _ = read_users()
     if df.empty:
         return False, "Identifiants incorrects."
-    match = df[(df["email"].astype(str) == email) &
-               (df["password"].astype(str) == pwd)]
+    match = df[
+        (df["email"].astype(str) == email) &
+        (df["password"].astype(str) == pwd)
+    ]
     if match.empty:
         return False, "Identifiants incorrects."
     return True, "OK"
@@ -421,7 +445,11 @@ def page_dashboard():
             if not desc.strip():
                 st.warning("Veuillez saisir une description.")
             else:
+                # Re-lit le sha le plus frais avant d'écrire
                 full_df, sha = read_budget_cached()
+                _, fresh_sha = gh_read(BUDGET_FILE)
+                if fresh_sha:
+                    sha = fresh_sha
                 new_row = pd.DataFrame([{
                     "id":          secrets.token_hex(8),
                     "user_email":  email,
@@ -432,9 +460,12 @@ def page_dashboard():
                     "montant":     mt,
                     "auteur":      email.split("@")[0],
                 }])
-                write_budget(pd.concat([full_df, new_row], ignore_index=True), sha)
-                st.success("✅ Enregistré !")
-                st.rerun()
+                ok, err = write_budget(pd.concat([full_df, new_row], ignore_index=True), sha)
+                if ok:
+                    st.success("✅ Enregistré !")
+                    st.rerun()
+                else:
+                    st.error(f"Erreur : {err}")
 
     # ══ HISTORIQUE ═══════════════════════════════════
     with tab_history:
@@ -468,10 +499,15 @@ def page_dashboard():
                     </div>""", unsafe_allow_html=True)
                 with col_del:
                     if st.button("🗑", key=f"d_{tx_id}"):
-                        full_df, sha = read_budget_cached()
-                        full_df = full_df[full_df["id"].astype(str) != tx_id]
-                        write_budget(full_df, sha)
-                        st.rerun()
+                        _, fresh_sha = gh_read(BUDGET_FILE)
+                        full_df, _   = read_budget_cached()
+                        sha          = fresh_sha or _
+                        full_df      = full_df[full_df["id"].astype(str) != tx_id]
+                        ok, err      = write_budget(full_df, sha)
+                        if ok:
+                            st.rerun()
+                        else:
+                            st.error(f"Erreur suppression : {err}")
 
     # ══ COMPTE ═══════════════════════════════════════
     with tab_account:
@@ -482,7 +518,6 @@ def page_dashboard():
             <div style="font-size:12px;color:#aaa;margin-top:4px">Compte actif</div>
         </div>""", unsafe_allow_html=True)
 
-        # Identifiants en clair
         df_u, _ = read_users()
         if not df_u.empty:
             row_u = df_u[df_u["email"].astype(str) == email]
